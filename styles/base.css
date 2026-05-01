@@ -1,0 +1,68 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  min-height: 100%;
+  overflow-x: clip;
+  background: var(--bg);
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: clip;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "DM Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+html.dark-mode,
+body.dark-mode {
+  color-scheme: dark;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: var(--accent);
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+svg {
+  display: block;
+}
+
+button {
+  color: inherit;
+}
+
+::selection {
+  background: rgba(32, 94, 91, 0.18);
+  color: var(--ink);
+}
+
+body.dark-mode ::selection {
+  background: rgba(121, 174, 165, 0.26);
+  color: var(--ink);
+}

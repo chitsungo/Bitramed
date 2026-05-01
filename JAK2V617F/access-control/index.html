@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bitramed Access Control</title>
+    <script src="/src/core/favicon-boot.js"></script>
+    <script src="/src/core/theme-boot.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body class="admin-page" data-admin-page="access">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            id="admin-home-btn"
+            class="brand-home-btn"
+            type="button"
+            aria-label="Go to main app"
+            title="Main App"
+          >
+            <span class="brand-home-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+            </span>
+            <span class="brand-home-text">Bitramed</span>
+          </button>
+        </div>
+
+        <div class="topbar-right">
+          <div id="admin-user-pill" class="topbar-user-pill" hidden>
+            <span
+              id="admin-user-avatar"
+              class="topbar-user-avatar"
+              aria-hidden="true"
+              >O</span
+            >
+            <span id="admin-user-name" class="topbar-user-name">Owner</span>
+          </div>
+
+          <button
+            id="admin-signout-btn"
+            class="icon-btn"
+            aria-label="Sign out"
+            title="Sign out"
+            type="button"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10 17v-3H3v-4h7V7l5 5-5 5Zm8 2h-6v-2h6V7h-6V5h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-wrap">
+        <section id="admin-loading-view" class="panel">
+          <div class="spinner"></div>
+          <p class="muted centered">Loading admin dashboard...</p>
+        </section>
+
+        <section
+          id="admin-denied-view"
+          class="view browse-view admin-state-view"
+          hidden
+        >
+          <div
+            class="dashboard-hero-panel admin-dashboard-hero admin-state-hero"
+          >
+            <div class="dashboard-hero-copy">
+              <div class="browse-eyebrow">
+                <span class="browse-eyebrow-line"></span>
+                <span class="browse-eyebrow-text">Owner Access</span>
+              </div>
+              <h2 class="dashboard-greeting">Access denied,</h2>
+              <p class="dashboard-greeting-name">owner only.</p>
+              <p class="browse-page-subtitle admin-dashboard-lead">
+                This area is reserved for the protected Bitramed owner account.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="admin-dashboard-view"
+          class="view browse-view admin-dashboard-view"
+          hidden
+        >
+          <div
+            id="admin-access-shell"
+            class="admin-screen admin-page-shell admin-page-shell-access"
+          >
+            <div class="dashboard-hero-panel admin-dashboard-hero">
+              <div class="dashboard-hero-copy">
+                <div class="browse-eyebrow">
+                  <span class="browse-eyebrow-line"></span>
+                  <span class="browse-eyebrow-text">ACCESS CONTROL</span>
+                </div>
+                <h2
+                  id="admin-access-shell-title"
+                  class="browse-page-title admin-page-title"
+                >
+                  Access Control
+                </h2>
+                <p
+                  id="admin-access-shell-subtitle"
+                  class="browse-page-subtitle admin-dashboard-lead"
+                >
+                  Grant, renew, block, and restore accounts without burying the
+                  list work under analytics.
+                </p>
+              </div>
+
+              <nav class="admin-route-nav" aria-label="Admin sections">
+                <a class="admin-route-link" href="/JAK2V617F/">Dashboard Home</a>
+                <a class="admin-route-link" href="/JAK2V617F/stats/">Stats</a>
+                <a
+                  class="admin-route-link is-active"
+                  href="/JAK2V617F/access-control/"
+                  aria-current="page"
+                  >Access Control</a
+                >
+              </nav>
+            </div>
+
+            <div
+              class="dashboard-summary-strip admin-summary-strip admin-access-summary-strip"
+            >
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-access-active-count"
+                  class="dashboard-summary-value good"
+                >
+                  0
+                </div>
+                <div class="dashboard-summary-key">Active</div>
+              </div>
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-access-expired-count"
+                  class="dashboard-summary-value"
+                >
+                  0
+                </div>
+                <div class="dashboard-summary-key">Expired</div>
+              </div>
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-access-new-count"
+                  class="dashboard-summary-value"
+                >
+                  0
+                </div>
+                <div class="dashboard-summary-key">New</div>
+              </div>
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-access-blocked-count"
+                  class="dashboard-summary-value"
+                >
+                  0
+                </div>
+                <div class="dashboard-summary-key">Blocked</div>
+              </div>
+            </div>
+
+            <div
+              id="admin-access-feedback"
+              class="admin-access-feedback"
+              hidden
+            ></div>
+
+            <section id="admin-access-menu-shell" class="admin-flow-section">
+              <div class="browse-section-label">
+                <span
+                  id="admin-access-section-title"
+                  class="browse-section-title"
+                  >Access Lanes</span
+                >
+                <span
+                  id="admin-access-section-count"
+                  class="browse-section-count"
+                  >4 live lists</span
+                >
+              </div>
+
+              <div
+                id="admin-access-menu"
+                class="admin-choice-grid admin-access-choice-grid"
+              ></div>
+            </section>
+
+            <section
+              id="admin-access-category-shell"
+              class="admin-flow-section admin-access-category-shell"
+              hidden
+            >
+              <div class="browse-section-label">
+                <span
+                  id="admin-access-category-title"
+                  class="browse-section-title"
+                  >Selected List</span
+                >
+                <span
+                  id="admin-access-category-count"
+                  class="browse-section-count"
+                  >Live accounts</span
+                >
+              </div>
+              <div id="admin-access-list" class="admin-access-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/entries/admin.js"></script>
+  </body>
+</html>

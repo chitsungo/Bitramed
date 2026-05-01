@@ -1,0 +1,332 @@
+body.dark-mode .menu-backdrop,
+body.dark-mode .search-backdrop,
+body.dark-mode.auth-page .modal-backdrop {
+  background: rgba(0, 0, 0, 0.34);
+}
+
+body.dark-mode .brand-home-mark {
+  background: #2d261f;
+  color: #fff;
+}
+
+body.dark-mode .app-shell > .topbar {
+  background: rgba(24, 22, 19, 0.9);
+  border-color: rgba(255, 247, 236, 0.08);
+}
+
+body.dark-mode .topbar-menu {
+  background: rgba(24, 22, 19, 0.98);
+  border-left-color: rgba(255, 247, 236, 0.06);
+  box-shadow: 0 32px 56px rgba(0, 0, 0, 0.32);
+}
+
+body.dark-mode .panel,
+body.dark-mode .dashboard-summary-strip,
+body.dark-mode .selection-stats,
+body.dark-mode .quizlist-stat-bar,
+body.dark-mode .setup-stat-bar,
+body.dark-mode .results-summary-strip,
+body.dark-mode .menu-session-strip,
+body.dark-mode .topbar-user-pill,
+body.dark-mode .topbar-menu,
+body.dark-mode .search-overlay-inner,
+body.dark-mode .search-result-card,
+body.dark-mode .browse-card,
+body.dark-mode .selection-card,
+body.dark-mode .quizlist-card,
+body.dark-mode .setup-mode-card,
+body.dark-mode .setup-review-panel,
+body.dark-mode .setup-review-card,
+body.dark-mode .question-card,
+body.dark-mode .quiz-submit-bar,
+body.dark-mode .results-hero-card,
+body.dark-mode .result-card,
+body.dark-mode .result-answer-box,
+body.dark-mode .result-explanation-box,
+body.dark-mode .settings-card,
+body.dark-mode .settings-card-panel,
+body.dark-mode .account-stat-card,
+body.dark-mode .account-course-card,
+body.dark-mode .account-recent-card,
+body.dark-mode .admin-choice-card,
+body.dark-mode .admin-metric-card,
+body.dark-mode .admin-chart-panel,
+body.dark-mode .admin-surface-card,
+body.dark-mode .admin-highlight-card,
+body.dark-mode .admin-access-row,
+body.dark-mode .admin-access-feedback,
+body.dark-mode .admin-access-btn,
+body.dark-mode .dialog-panel {
+  border-color: var(--border);
+}
+
+body.dark-mode .browse-card {
+  background: rgba(44, 39, 35, 0.96);
+  border-color: rgba(255, 247, 236, 0.11);
+  box-shadow:
+    0 22px 44px rgba(0, 0, 0, 0.26),
+    0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+body.dark-mode.auth-page .topbar {
+  border-color: var(--border);
+}
+
+body.dark-mode .browse-card-band,
+body.dark-mode .selection-card-band,
+body.dark-mode .selection-card-progress,
+body.dark-mode .browse-score-track,
+body.dark-mode .results-progress-track,
+body.dark-mode .results-summary-track,
+body.dark-mode .admin-bar-track,
+body.dark-mode .dashboard-overall-ring::after,
+body.dark-mode .access-overall-ring::after,
+body.dark-mode .admin-dashboard-ring::after {
+  background: var(--track);
+}
+
+body.dark-mode .browse-score-fill,
+body.dark-mode .selection-card-progress-fill,
+body.dark-mode .progress-fill,
+body.dark-mode .results-summary-fill,
+body.dark-mode .admin-bar-fill {
+  background: var(--accent);
+}
+
+body.dark-mode .browse-status-badge,
+body.dark-mode .selection-mode-tag,
+body.dark-mode .selection-locked-tag,
+body.dark-mode .question-format-pill,
+body.dark-mode .result-status,
+body.dark-mode .search-result-type,
+body.dark-mode .access-meta-chip,
+body.dark-mode .admin-access-status {
+  background: var(--surface-strong);
+}
+
+body.dark-mode .browse-status-badge.status-locked,
+body.dark-mode .selection-locked-tag,
+body.dark-mode .admin-access-status.is-blocked {
+  background: rgba(219, 106, 99, 0.12);
+  border-color: rgba(219, 106, 99, 0.2);
+}
+
+body.dark-mode .topbar-user-avatar,
+body.dark-mode .menu-sheet-avatar,
+body.dark-mode .browse-card-badge,
+body.dark-mode .selection-card-icon,
+body.dark-mode .setup-mode-icon {
+  background: rgba(121, 174, 165, 0.12);
+}
+
+body.dark-mode .icon-btn,
+body.dark-mode .topbar-user-pill,
+body.dark-mode .menu-sheet-close,
+body.dark-mode .menu-action-btn,
+body.dark-mode .menu-session-strip,
+body.dark-mode .selection-view .selection-page-back,
+body.dark-mode .selection-view .selection-card {
+  background: var(--surface-strong);
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+body.dark-mode .icon-btn,
+body.dark-mode .menu-sheet-close,
+body.dark-mode .topbar-user-name,
+body.dark-mode .menu-sheet-role,
+body.dark-mode .menu-section-title,
+body.dark-mode .menu-session-time,
+body.dark-mode .menu-sheet-brand,
+body.dark-mode .menu-sheet-version,
+body.dark-mode .selection-view .selection-label-hint,
+body.dark-mode .selection-view .selection-card-desc,
+body.dark-mode .selection-view .selection-card-meta,
+body.dark-mode .selection-view .selection-stat-key {
+  color: var(--ink-light);
+}
+
+body.dark-mode .browse-card-button:hover .browse-card,
+body.dark-mode .browse-card-button:focus-visible .browse-card {
+  background: rgba(52, 47, 42, 0.98);
+  border-color: rgba(121, 174, 165, 0.18);
+  box-shadow:
+    0 28px 54px rgba(0, 0, 0, 0.34),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+body.dark-mode .menu-action-icon,
+body.dark-mode .menu-item-arrow {
+  color: #a79d92;
+}
+
+body.dark-mode .menu-sheet-close,
+body.dark-mode .icon-btn {
+  color: #a79d92;
+}
+
+body.dark-mode .menu-action-icon {
+  background: rgba(255, 247, 236, 0.03);
+  border-color: rgba(255, 247, 236, 0.07);
+  box-shadow: none;
+}
+
+body.dark-mode .menu-sheet-item.is-current {
+  background: rgba(121, 174, 165, 0.05);
+  border-color: rgba(121, 174, 165, 0.14);
+  box-shadow: none;
+}
+
+body.dark-mode .menu-sheet-item.is-current .menu-action-icon {
+  background: rgba(121, 174, 165, 0.08);
+  border-color: rgba(121, 174, 165, 0.14);
+  color: #bcd8d1;
+}
+
+body.dark-mode .menu-sheet-item.is-current .menu-item-arrow {
+  color: #d7cec3;
+}
+
+body.dark-mode .menu-sheet-item:hover,
+body.dark-mode .menu-sheet-item:focus-visible {
+  background: rgba(41, 37, 33, 0.92);
+  border-color: rgba(255, 247, 236, 0.1);
+  box-shadow: none;
+}
+
+body.dark-mode .menu-sheet-item:hover .menu-action-icon,
+body.dark-mode .menu-sheet-item:focus-visible .menu-action-icon {
+  background: rgba(255, 247, 236, 0.045);
+  border-color: rgba(255, 247, 236, 0.09);
+  color: #d7cec3;
+}
+
+body.dark-mode .menu-sheet-item:hover .menu-item-arrow,
+body.dark-mode .menu-sheet-item:focus-visible .menu-item-arrow {
+  color: #d7cec3;
+}
+
+body.dark-mode .menu-sheet-close:hover,
+body.dark-mode .menu-sheet-close:focus-visible,
+body.dark-mode .icon-btn:hover,
+body.dark-mode .topbar-user-pill:hover {
+  background: rgba(255, 247, 236, 0.045);
+  border-color: rgba(255, 247, 236, 0.1);
+}
+
+body.dark-mode .menu-action-btn,
+body.dark-mode .menu-session-strip {
+  background: rgba(38, 34, 31, 0.92);
+  border-color: rgba(255, 247, 236, 0.07);
+}
+
+body.dark-mode .menu-sheet-avatar {
+  background: rgba(121, 174, 165, 0.08);
+  border-color: rgba(255, 247, 236, 0.08);
+  color: #8ec1b8;
+}
+
+body.dark-mode .menu-sheet-name,
+body.dark-mode .menu-session-text,
+body.dark-mode .menu-action-copy strong {
+  color: #f1eae2;
+}
+
+body.dark-mode .menu-sheet-role,
+body.dark-mode .menu-session-time,
+body.dark-mode .menu-sheet-brand,
+body.dark-mode .menu-sheet-version,
+body.dark-mode .menu-section-title {
+  color: #9f9387;
+}
+
+body.dark-mode .menu-sheet-item.is-danger .menu-action-icon,
+body.dark-mode .menu-sheet-item.is-danger strong {
+  color: #db6a63;
+}
+
+body.dark-mode .menu-sheet-item.is-danger {
+  background: rgba(38, 34, 31, 0.92);
+  border-color: rgba(219, 106, 99, 0.1);
+}
+
+body.dark-mode .menu-sheet-item.is-danger .menu-action-icon {
+  background: rgba(219, 106, 99, 0.06);
+  border-color: rgba(219, 106, 99, 0.1);
+}
+
+body.dark-mode .selection-view .selection-page-eyebrow .selection-eyebrow-line {
+  background: rgba(219, 106, 99, 0.4);
+}
+
+body.dark-mode .selection-view .selection-page-eyebrow .selection-eyebrow-text {
+  color: rgba(219, 106, 99, 0.8);
+}
+
+body.dark-mode .selection-view .selection-stat-cell {
+  border-left-color: var(--border-soft);
+}
+
+body.dark-mode .selection-view .selection-label-row {
+  border-bottom-color: var(--border);
+}
+
+body.dark-mode .selection-view .selection-label-title,
+body.dark-mode .selection-view .selection-card-name {
+  color: var(--ink);
+}
+
+body.dark-mode .selection-view .selection-mode-tag,
+body.dark-mode .selection-view .selection-card-status,
+body.dark-mode .selection-view .selection-visual-pill,
+body.dark-mode .selection-view .selection-visual-choice,
+body.dark-mode .selection-view .selection-card-arrow {
+  background: rgba(255, 247, 236, 0.04);
+  border-color: var(--border);
+  color: var(--ink-light);
+}
+
+body.dark-mode .selection-view .selection-visual-choice.is-active,
+body.dark-mode .selection-view .selection-visual-pill.is-active,
+body.dark-mode .selection-view .selection-card:hover,
+body.dark-mode .selection-view .selection-card:focus-visible,
+body.dark-mode .selection-view .selection-card:hover .selection-card-arrow,
+body.dark-mode .selection-view .selection-card:focus-visible .selection-card-arrow {
+  background: var(--panel-strong);
+  border-color: rgba(255, 247, 236, 0.12);
+}
+
+body.dark-mode .selection-view .selection-visual-choice.is-active,
+body.dark-mode .selection-view .selection-visual-pill.is-active,
+body.dark-mode .selection-view .selection-card:hover .selection-card-arrow,
+body.dark-mode .selection-view .selection-card:focus-visible .selection-card-arrow {
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-text);
+}
+
+body.dark-mode .selection-view .selection-visual-radio {
+  border-color: rgba(255, 247, 236, 0.26);
+}
+
+body.dark-mode .selection-view .selection-card-status.is-complete {
+  background: rgba(136, 189, 148, 0.12);
+  border-color: rgba(136, 189, 148, 0.2);
+  color: var(--success);
+}
+
+body.dark-mode .selection-view .selection-card-status.is-progress {
+  background: rgba(121, 174, 165, 0.12);
+  border-color: rgba(121, 174, 165, 0.2);
+  color: var(--accent);
+}
+
+body.dark-mode .selection-view .selection-card-status.is-locked {
+  background: rgba(219, 106, 99, 0.12);
+  border-color: rgba(219, 106, 99, 0.2);
+  color: var(--danger);
+}
+
+body.dark-mode .toast {
+  background: var(--panel-strong);
+}

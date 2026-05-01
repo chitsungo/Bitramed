@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bitramed Admin — Stats</title>
+    <script src="/src/core/favicon-boot.js"></script>
+    <script src="/src/core/theme-boot.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body class="admin-page" data-admin-page="stats">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            id="admin-home-btn"
+            class="brand-home-btn"
+            type="button"
+            aria-label="Go to main app"
+            title="Main App"
+          >
+            <span class="brand-home-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+            </span>
+            <span class="brand-home-text">Bitramed</span>
+          </button>
+        </div>
+
+        <div class="topbar-right">
+          <div id="admin-user-pill" class="topbar-user-pill" hidden>
+            <span
+              id="admin-user-avatar"
+              class="topbar-user-avatar"
+              aria-hidden="true"
+              >O</span
+            >
+            <span id="admin-user-name" class="topbar-user-name">Owner</span>
+          </div>
+
+          <button
+            id="admin-signout-btn"
+            class="icon-btn"
+            aria-label="Sign out"
+            title="Sign out"
+            type="button"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10 17v-3H3v-4h7V7l5 5-5 5Zm8 2h-6v-2h6V7h-6V5h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-wrap">
+        <section id="admin-loading-view" class="panel">
+          <div class="spinner"></div>
+          <p class="muted centered">Loading admin dashboard...</p>
+        </section>
+
+        <section
+          id="admin-denied-view"
+          class="view browse-view admin-state-view"
+          hidden
+        >
+          <div
+            class="dashboard-hero-panel admin-dashboard-hero admin-state-hero"
+          >
+            <div class="dashboard-hero-copy">
+              <div class="browse-eyebrow">
+                <span class="browse-eyebrow-line"></span>
+                <span class="browse-eyebrow-text">Owner Access</span>
+              </div>
+              <h2 class="dashboard-greeting">Access denied,</h2>
+              <p class="dashboard-greeting-name">owner only.</p>
+              <p class="browse-page-subtitle admin-dashboard-lead">
+                This area is reserved for the protected Bitramed owner account.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="admin-dashboard-view"
+          class="view browse-view admin-dashboard-view"
+          hidden
+        >
+          <div
+            id="admin-stats-shell"
+            class="admin-screen admin-page-shell admin-page-shell-stats"
+          >
+
+            <!-- ── Page Header ─────────────────────────────────── -->
+            <div class="stats-page-header admin-dashboard-hero">
+              <div class="dashboard-hero-copy">
+                <div class="browse-eyebrow">
+                  <span class="browse-eyebrow-line"></span>
+                  <span class="browse-eyebrow-text">Performance Stats</span>
+                  <span class="stats-live-badge" aria-label="Live data">
+                    <span class="stats-live-dot" aria-hidden="true"></span>
+                    Live
+                  </span>
+                </div>
+                <h2 class="stats-page-title">Platform Analytics</h2>
+                <p class="browse-page-subtitle admin-dashboard-lead">
+                  A live read of learner momentum, course quality, and platform
+                  activity without crushing everything into one stack.
+                </p>
+              </div>
+
+              <nav class="admin-route-nav" aria-label="Admin sections">
+                <a class="admin-route-link" href="/JAK2V617F/">Dashboard Home</a>
+                <a
+                  class="admin-route-link is-active"
+                  href="/JAK2V617F/stats/"
+                  aria-current="page"
+                  >Stats</a
+                >
+                <a class="admin-route-link" href="/JAK2V617F/access-control/"
+                  >Access Control</a
+                >
+              </nav>
+            </div>
+
+            <!-- ── KPI Strip ───────────────────────────────────── -->
+            <div class="stats-kpi-strip">
+
+              <div class="stats-kpi-card">
+                <div class="stats-kpi-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <div class="stats-kpi-body">
+                  <div id="admin-stats-users" class="stats-kpi-value">0</div>
+                  <div class="stats-kpi-label">Total Users</div>
+                </div>
+              </div>
+
+              <div class="stats-kpi-card stats-kpi-card--blue">
+                <div class="stats-kpi-icon stats-kpi-icon--blue" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                </div>
+                <div class="stats-kpi-body">
+                  <div id="admin-stats-completed" class="stats-kpi-value">0</div>
+                  <div class="stats-kpi-label">Quizzes Completed</div>
+                </div>
+              </div>
+
+              <div class="stats-kpi-card stats-kpi-card--green">
+                <div class="stats-kpi-icon stats-kpi-icon--green" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                  </svg>
+                </div>
+                <div class="stats-kpi-body">
+                  <div id="admin-stats-average" class="stats-kpi-value good">0%</div>
+                  <div class="stats-kpi-label">Average Score</div>
+                </div>
+              </div>
+
+              <div class="stats-kpi-card stats-kpi-card--amber">
+                <div class="stats-kpi-icon stats-kpi-icon--amber" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                </div>
+                <div class="stats-kpi-body">
+                  <div id="admin-stats-engagement" class="stats-kpi-value good">0%</div>
+                  <div class="stats-kpi-label">Engagement Rate</div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- ── Brief + Priorities ─────────────────────────── -->
+            <div class="admin-stats-spotlight-grid">
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Executive Brief</span>
+                  <span class="browse-section-count">1 summary</span>
+                </div>
+                <section
+                  id="admin-story-card"
+                  class="admin-story-card"
+                ></section>
+              </section>
+
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Immediate Priorities</span>
+                  <span class="browse-section-count">3 actions</span>
+                </div>
+                <div
+                  id="admin-user-highlights"
+                  class="admin-user-highlights"
+                ></div>
+              </section>
+            </div>
+
+            <!-- ── Platform Read ──────────────────────────────── -->
+            <section class="admin-flow-section">
+              <div class="browse-section-label">
+                <span class="browse-section-title">Platform Read</span>
+                <span class="browse-section-count">4 signals</span>
+              </div>
+              <div id="admin-overview-grid" class="admin-overview-grid"></div>
+            </section>
+
+            <!-- ── Operating Snapshot ─────────────────────────── -->
+            <section class="admin-flow-section">
+              <div class="browse-section-label">
+                <span class="browse-section-title">Operating Snapshot</span>
+                <span class="browse-section-count">Pulse</span>
+              </div>
+              <section class="admin-chart-panel">
+                <div class="admin-panel-head">
+                  <p class="admin-panel-note">
+                    Engagement, score quality, access coverage, and activity
+                    density.
+                  </p>
+                </div>
+                <div id="admin-health-chart" class="admin-chart-stage"></div>
+              </section>
+            </section>
+
+            <!-- ── Course Comparison ──────────────────────────── -->
+            <section class="admin-flow-section">
+              <div class="browse-section-label">
+                <span class="browse-section-title">Course Comparison</span>
+                <span class="browse-section-count">By score</span>
+              </div>
+              <section class="admin-chart-panel">
+                <div class="admin-panel-head">
+                  <p class="admin-panel-note">
+                    Strongest courses first — spot where the platform drops off.
+                  </p>
+                </div>
+                <div id="admin-course-chart" class="admin-chart-stage"></div>
+              </section>
+            </section>
+
+            <!-- ── Course Leaderboard + Latest Attempts ──────── -->
+            <div class="admin-stats-detail-grid">
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Course Leaderboard</span>
+                  <span
+                    id="admin-course-section-count"
+                    class="browse-section-count"
+                    >0 tracked</span
+                  >
+                </div>
+                <div id="admin-course-grid" class="admin-course-grid"></div>
+              </section>
+
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Latest Attempts</span>
+                  <span
+                    id="admin-recent-section-count"
+                    class="browse-section-count"
+                    >0 recent</span
+                  >
+                </div>
+                <div id="admin-recent-list" class="admin-recent-list"></div>
+              </section>
+            </div>
+
+            <!-- ── Top Ranked Learners ────────────────────────── -->
+            <section class="admin-flow-section">
+              <div class="browse-section-label">
+                <span class="browse-section-title">Top Ranked Learners</span>
+                <span
+                  id="admin-ranked-section-count"
+                  class="browse-section-count"
+                  >0 learners</span
+                >
+              </div>
+              <div id="admin-ranked-users" class="admin-ranked-grid"></div>
+            </section>
+
+            <!-- ── Learners to Review ─────────────────────────── -->
+            <section class="admin-flow-section">
+              <div class="browse-section-label">
+                <span class="browse-section-title">Learners to Review</span>
+                <span
+                  id="admin-user-section-count"
+                  class="browse-section-count"
+                  >0 learners</span
+                >
+              </div>
+              <div
+                id="admin-user-list"
+                class="admin-recent-list stats-learner-grid"
+              ></div>
+            </section>
+
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/entries/admin.js"></script>
+  </body>
+</html>

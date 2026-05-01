@@ -1,0 +1,260 @@
+body:not(.auth-page) .app-shell {
+  position: relative;
+  z-index: 1;
+}
+
+body:not(.auth-page) .topbar {
+  border-bottom: 1px solid var(--border);
+  background: rgba(248, 244, 238, 0.82);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 24px rgba(24, 22, 15, 0.06);
+}
+
+body.dark-mode:not(.auth-page) .topbar {
+  background: rgba(22, 21, 19, 0.88);
+  border-bottom-color: var(--border);
+}
+
+body:not(.auth-page) .brand-home-btn,
+body:not(.auth-page) .icon-btn,
+body:not(.auth-page) .topbar-user-pill,
+body:not(.auth-page) .panel,
+body:not(.auth-page) .dashboard-summary-strip,
+body:not(.auth-page) .selection-stats,
+body:not(.auth-page) .quizlist-stat-bar,
+body:not(.auth-page) .setup-stat-bar,
+body:not(.auth-page) .results-summary-strip,
+body:not(.auth-page) .menu-session-strip,
+body:not(.auth-page) .topbar-menu,
+body:not(.auth-page) .search-overlay-inner,
+body:not(.auth-page) .search-result-card,
+body:not(.auth-page) .browse-card,
+body:not(.auth-page) .selection-card,
+body:not(.auth-page) .quizlist-card,
+body:not(.auth-page) .setup-mode-card,
+body:not(.auth-page) .settings-card,
+body:not(.auth-page) .settings-card-panel,
+body:not(.auth-page) .settings-theme-switch,
+body:not(.auth-page) .account-stat-card,
+body:not(.auth-page) .account-course-card,
+body:not(.auth-page) .account-recent-card,
+body:not(.auth-page) .result-card,
+body:not(.auth-page) .result-answer-box,
+body:not(.auth-page) .result-explanation-box,
+body:not(.auth-page) .question-card,
+body:not(.auth-page) .quiz-submit-bar,
+body:not(.auth-page) .admin-choice-card,
+body:not(.auth-page) .admin-surface-card,
+body:not(.auth-page) .admin-highlight-card,
+body:not(.auth-page) .admin-chart-panel,
+body:not(.auth-page) .admin-access-row,
+body:not(.auth-page) .admin-access-feedback,
+body:not(.auth-page) .admin-access-btn,
+body:not(.auth-page) .toast,
+body:not(.auth-page) #loading-view {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+  color: var(--text);
+}
+
+body:not(.auth-page) .dashboard-hero-panel,
+body:not(.auth-page) .browse-header,
+body:not(.auth-page) .selection-header,
+body:not(.auth-page) .quizlist-hero,
+body:not(.auth-page) .setup-hero-card,
+body:not(.auth-page) .results-hero-card,
+body:not(.auth-page) .admin-dashboard-hero,
+body:not(.auth-page) .access-hero-panel {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+body:not(.auth-page) .dashboard-greeting,
+body:not(.auth-page) .browse-page-title,
+body:not(.auth-page) .selection-title,
+body:not(.auth-page) .quizlist-title,
+body:not(.auth-page) .setup-title,
+body:not(.auth-page) .results-page-title,
+body:not(.auth-page) .settings-card-title,
+body:not(.auth-page) .account-page-title,
+body:not(.auth-page) .admin-page-title,
+body:not(.auth-page) .admin-panel-title,
+body:not(.auth-page) .dialog-title {
+  font-family: "Playfair Display", serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+body:not(.auth-page) .browse-eyebrow-text,
+body:not(.auth-page) .search-overlay-kicker,
+body:not(.auth-page) .admin-panel-kicker,
+body:not(.auth-page) .admin-choice-kicker {
+  color: var(--accent-rose);
+}
+
+body:not(.auth-page) .browse-eyebrow-line,
+body:not(.auth-page) .eyebrow-line {
+  background: var(--accent-rose);
+}
+
+body:not(.auth-page) .brand-home-text,
+body:not(.auth-page) .dashboard-overall-ring-value,
+body:not(.auth-page) .browse-card-title,
+body:not(.auth-page) .selection-card-title,
+body:not(.auth-page) .quizlist-card-title,
+body:not(.auth-page) .setup-mode-title,
+body:not(.auth-page) .admin-choice-title,
+body:not(.auth-page) .admin-surface-title,
+body:not(.auth-page) .admin-highlight-value,
+body:not(.auth-page) .search-result-title,
+body:not(.auth-page) .topbar-user-name {
+  color: var(--ink);
+}
+
+body:not(.auth-page) .brand-home-btn,
+body:not(.auth-page) .icon-btn,
+body:not(.auth-page) .browse-back-btn,
+body:not(.auth-page) .selection-back-btn,
+body:not(.auth-page) .quizlist-back-btn,
+body:not(.auth-page) .admin-access-btn,
+body:not(.auth-page) .search-close-btn {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+
+body:not(.auth-page) .primary-btn,
+body:not(.auth-page) .quiz-submit-btn,
+body:not(.auth-page) .results-retry-btn,
+body:not(.auth-page) .access-action-btn.is-primary,
+body:not(.auth-page) .admin-access-btn,
+body:not(.auth-page) .dialog-btn.primary {
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  color: var(--button-text);
+  box-shadow: none;
+}
+
+body:not(.auth-page) .dialog-btn.secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--ink-mid);
+}
+
+body:not(.auth-page) .admin-access-btn.is-danger,
+body:not(.auth-page) .dialog-btn.danger {
+  background: rgba(181, 41, 42, 0.08);
+  border-color: rgba(181, 41, 42, 0.18);
+  color: var(--danger);
+}
+
+body:not(.auth-page) .dashboard-summary-key,
+body:not(.auth-page) .browse-page-subtitle,
+body:not(.auth-page) .selection-card-desc,
+body:not(.auth-page) .quizlist-mode-label,
+body:not(.auth-page) .quiz-session-subtitle,
+body:not(.auth-page) .settings-card-copy,
+body:not(.auth-page) .admin-surface-note,
+body:not(.auth-page) .admin-choice-subtitle,
+body:not(.auth-page) .dialog-copy,
+body:not(.auth-page) .menu-action-copy small,
+body:not(.auth-page) .menu-sheet-role,
+body:not(.auth-page) .menu-sheet-version {
+  color: var(--muted);
+}
+
+body:not(.auth-page) .search-input,
+body:not(.auth-page) .overlay-search-input,
+body:not(.auth-page) .auth-input,
+body:not(.auth-page) .settings-switch-track,
+body:not(.auth-page) .dialog-input {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--ink);
+}
+
+body:not(.auth-page) .search-input:focus,
+body:not(.auth-page) .overlay-search-input:focus,
+body:not(.auth-page) .dialog-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(26, 107, 107, 0.12);
+}
+
+body:not(.auth-page) .dashboard-overall-ring,
+body:not(.auth-page) .access-overall-ring,
+body:not(.auth-page) .admin-dashboard-ring {
+  background: conic-gradient(var(--accent) 0 var(--dashboard-progress), rgba(69, 64, 56, 0.14) var(--dashboard-progress) 100%);
+  box-shadow: none;
+}
+
+body:not(.auth-page) .dashboard-overall-ring-inner {
+  background: var(--surface-strong);
+  border-color: var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+body:not(.auth-page) .result-card.correct,
+body:not(.auth-page) .result-answer-box.correct-answer,
+body:not(.auth-page) .admin-access-feedback.success {
+  background: rgba(45, 107, 66, 0.08);
+  border-color: rgba(45, 107, 66, 0.2);
+}
+
+body:not(.auth-page) .result-card.incorrect,
+body:not(.auth-page) .admin-access-feedback.error {
+  background: rgba(181, 41, 42, 0.08);
+  border-color: rgba(181, 41, 42, 0.2);
+}
+
+body:not(.auth-page) .result-card.notsure {
+  background: rgba(165, 107, 31, 0.08);
+  border-color: rgba(165, 107, 31, 0.2);
+}
+
+body.dark-mode:not(.auth-page) .panel,
+body.dark-mode:not(.auth-page) .dashboard-summary-strip,
+body.dark-mode:not(.auth-page) .selection-stats,
+body.dark-mode:not(.auth-page) .quizlist-stat-bar,
+body.dark-mode:not(.auth-page) .setup-stat-bar,
+body.dark-mode:not(.auth-page) .results-summary-strip,
+body.dark-mode:not(.auth-page) .brand-home-btn,
+body.dark-mode:not(.auth-page) .icon-btn,
+body.dark-mode:not(.auth-page) .topbar-user-pill,
+body.dark-mode:not(.auth-page) .browse-card,
+body.dark-mode:not(.auth-page) .selection-card,
+body.dark-mode:not(.auth-page) .quizlist-card,
+body.dark-mode:not(.auth-page) .setup-mode-card,
+body.dark-mode:not(.auth-page) .settings-card,
+body.dark-mode:not(.auth-page) .account-stat-card,
+body.dark-mode:not(.auth-page) .account-course-card,
+body.dark-mode:not(.auth-page) .account-recent-card,
+body.dark-mode:not(.auth-page) .result-card,
+body.dark-mode:not(.auth-page) .question-card,
+body.dark-mode:not(.auth-page) .admin-choice-card,
+body.dark-mode:not(.auth-page) .admin-surface-card,
+body.dark-mode:not(.auth-page) .admin-highlight-card,
+body.dark-mode:not(.auth-page) .admin-chart-panel,
+body.dark-mode:not(.auth-page) .admin-access-row,
+body.dark-mode:not(.auth-page) .admin-access-feedback,
+body.dark-mode:not(.auth-page) .admin-access-btn,
+body.dark-mode:not(.auth-page) .dialog-panel {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+body.dark-mode:not(.auth-page) .brand-home-text,
+body.dark-mode:not(.auth-page) .dashboard-greeting,
+body.dark-mode:not(.auth-page) .browse-page-title,
+body.dark-mode:not(.auth-page) .selection-title,
+body.dark-mode:not(.auth-page) .quizlist-title,
+body.dark-mode:not(.auth-page) .setup-title,
+body.dark-mode:not(.auth-page) .results-page-title,
+body.dark-mode:not(.auth-page) .admin-page-title,
+body.dark-mode:not(.auth-page) .dialog-title,
+body.dark-mode:not(.auth-page) .topbar-user-name {
+  color: var(--ink);
+}

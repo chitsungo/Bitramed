@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en" class="overscroll-none">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Bitramed - Update Password</title>
+    <script src="/src/core/favicon-boot.js"></script>
+    <script src="/src/core/theme-boot.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap");
+
+      body {
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
+        background-color: #050505;
+        color: #d4d4d8;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .font-serif {
+        font-family: "Playfair Display", serif;
+      }
+
+      .auth-feedback {
+        display: none;
+        margin-top: 1rem;
+        border-radius: 0.75rem;
+        border: 1px solid transparent;
+        padding: 0.9rem 1rem;
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+
+      .auth-feedback.show {
+        display: block;
+      }
+
+      .auth-feedback.error {
+        border-color: rgb(217 83 79 / 0.3);
+        background: rgb(217 83 79 / 0.1);
+        color: #f5bab8;
+      }
+
+      .auth-feedback.success,
+      .auth-feedback.info {
+        border-color: rgb(91 154 146 / 0.3);
+        background: rgb(91 154 146 / 0.1);
+        color: #c8e3df;
+      }
+    </style>
+  </head>
+  <body
+    class="auth-page selection:bg-[#d9534f]/30 flex min-h-screen flex-col overflow-x-hidden overscroll-none bg-black"
+  >
+    <img
+      src="https://frlujqujvpqwvtavofdq.supabase.co/storage/v1/object/public/Site%20Images/background.png"
+      class="pointer-events-none fixed inset-0 -z-20 h-screen w-screen select-none object-cover"
+      alt="Background Image"
+    />
+    <div class="pointer-events-none fixed inset-0 -z-10 bg-black/55"></div>
+    <div
+      class="pointer-events-none fixed left-[-10%] top-[-10%] -z-10 h-[40vw] w-[40vw] rounded-full bg-[#5b9a92]/10 blur-[100px]"
+    ></div>
+    <div
+      class="pointer-events-none fixed bottom-[-10%] right-[-5%] -z-10 h-[30vw] w-[30vw] rounded-full bg-[#d9534f]/10 blur-[100px]"
+    ></div>
+
+    <nav
+      class="relative z-10 flex w-full items-center justify-between px-6 py-5"
+    >
+      <a
+        href="/?mode=login"
+        class="group flex items-center gap-3 text-left no-underline"
+      >
+        <div
+          class="flex items-center justify-center rounded-md bg-white p-1.5 text-black shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300 group-hover:scale-105 group-hover:bg-zinc-200"
+        >
+          <svg
+            class="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </div>
+        <span
+          class="text-xl font-bold tracking-tight text-white transition-colors group-hover:text-zinc-200"
+          >Bitramed</span
+        >
+      </a>
+
+      <a
+        href="/?mode=login"
+        class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-300 no-underline transition-colors hover:bg-white/10 hover:text-white"
+      >
+        Back to login
+      </a>
+    </nav>
+
+    <main
+      class="relative z-10 flex flex-1 items-center justify-center px-6 pb-12 pt-6 sm:px-12"
+    >
+      <section class="w-full max-w-[430px]">
+        <div class="mb-5 text-center sm:text-left">
+          <div
+            class="mb-3 inline-flex items-center gap-3 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 backdrop-blur-md"
+          >
+            <div class="h-[2px] w-6 bg-[#d9534f]"></div>
+            <span
+              class="text-[10px] font-bold uppercase tracking-[0.2em] text-[#d9534f]"
+            >
+              Student Portal
+            </span>
+          </div>
+          <h1
+            id="resetPageTitle"
+            class="font-serif mb-2 text-4xl font-bold leading-[1.08] text-white drop-shadow-md"
+          >
+            Checking your
+            <span class="font-normal italic text-zinc-400">reset link.</span>
+          </h1>
+          <p
+            id="resetPageCopy"
+            class="text-sm leading-relaxed text-zinc-400"
+          >
+            We are validating your password reset session.
+          </p>
+        </div>
+
+        <div
+          class="relative overflow-hidden rounded-3xl border border-white/10 bg-[#121212]/90 p-5 shadow-2xl backdrop-blur-xl sm:p-6"
+        >
+          <div
+            class="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          ></div>
+
+          <div id="resetLoadingState" class="space-y-3 py-3">
+            <div
+              class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400"
+            >
+              Validating
+            </div>
+            <p class="text-sm leading-relaxed text-zinc-300">
+              Hold on while Bitramed confirms this recovery link.
+            </p>
+          </div>
+
+          <form id="passwordResetForm" class="space-y-4" hidden>
+            <div class="space-y-1.5">
+              <label
+                class="ml-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-400"
+                for="reset-password"
+                >New Password</label
+              >
+              <div class="group relative">
+                <div
+                  class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5"
+                >
+                  <svg
+                    class="h-4 w-4 text-zinc-500 transition-colors group-focus-within:text-white"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect
+                      x="3"
+                      y="11"
+                      width="18"
+                      height="11"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </div>
+                <input
+                  id="reset-password"
+                  type="password"
+                  class="w-full rounded-xl border border-white/5 bg-black/50 py-2.5 pl-10 pr-4 text-sm text-white transition-all placeholder:text-zinc-600 focus:border-[#5b9a92] focus:outline-none focus:ring-1 focus:ring-[#5b9a92]"
+                  placeholder="Choose a new password"
+                  autocomplete="new-password"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <label
+                class="ml-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-400"
+                for="reset-password-confirm"
+                >Confirm Password</label
+              >
+              <div class="group relative">
+                <div
+                  class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5"
+                >
+                  <svg
+                    class="h-4 w-4 text-zinc-500 transition-colors group-focus-within:text-white"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect
+                      x="3"
+                      y="11"
+                      width="18"
+                      height="11"
+                      rx="2"
+                      ry="2"
+                    ></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </div>
+                <input
+                  id="reset-password-confirm"
+                  type="password"
+                  class="w-full rounded-xl border border-white/5 bg-black/50 py-2.5 pl-10 pr-4 text-sm text-white transition-all placeholder:text-zinc-600 focus:border-[#5b9a92] focus:outline-none focus:ring-1 focus:ring-[#5b9a92]"
+                  placeholder="Repeat the new password"
+                  autocomplete="new-password"
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              id="passwordResetSubmit"
+              class="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-black transition-transform hover:scale-[1.02] hover:bg-zinc-200 active:scale-[0.98]"
+              type="submit"
+            >
+              <span id="passwordResetSubmitText">Update Password</span>
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </button>
+          </form>
+
+          <div id="resetInvalidState" class="space-y-4" hidden>
+            <p class="text-sm leading-relaxed text-zinc-300">
+              This password reset link is invalid or has expired. Request a new
+              reset email and try again.
+            </p>
+            <div class="flex flex-col gap-3 sm:flex-row">
+              <a
+                href="/?mode=login"
+                id="resetRequestNewLink"
+                class="inline-flex items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-black no-underline transition-transform hover:scale-[1.02] hover:bg-zinc-200 active:scale-[0.98]"
+              >
+                Back to login
+              </a>
+              <a
+                href="mailto:bitramed91@gmail.com"
+                class="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 no-underline transition-colors hover:bg-white/10"
+              >
+                Contact support
+              </a>
+            </div>
+          </div>
+
+          <div id="password-reset-feedback" class="auth-feedback" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script type="module" src="/src/entries/password-reset.js"></script>
+  </body>
+</html>
