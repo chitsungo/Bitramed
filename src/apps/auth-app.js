@@ -236,7 +236,7 @@ export const authApp = {
     if (next) {
       return this.toAbsoluteUrl(next);
     }
-    return this.toAbsoluteUrl("/dashboard/");
+    return this.toAbsoluteUrl("/home/");
   },
 
   bindEvents: function () {

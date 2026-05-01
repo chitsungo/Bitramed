@@ -227,7 +227,7 @@ export const adminApp = {
 
   bindEvents() {
     this.dom.adminHomeBtn.onclick = () => {
-      window.location.replace("/dashboard/");
+      window.location.replace("/home/");
     };
 
     this.dom.adminSignoutBtn.onclick = async () => {

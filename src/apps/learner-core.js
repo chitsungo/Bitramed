@@ -16,6 +16,9 @@ export const learnerCore = {
   quizCountdownInterval: null,
   quizCountdownDeadline: 0,
   quizSubmissionInFlight: false,
+  appDataCacheWriteTimer: null,
+  restoringAppDataCache: false,
+  appDataCacheVersion: 2,
   state: {
     levelList: [],
     levelIdByName: {},
@@ -28,6 +31,7 @@ export const learnerCore = {
     quizDetailsById: {},
     questionsByQuizId: {},
     attempts: [],
+    attemptsSignature: "",
     attemptsByQuizId: {},
     userStats: null,
     accountSummary: null,
@@ -71,23 +75,208 @@ export const learnerCore = {
       this.bindTopbarEngine();
       this.startMenuSessionClock();
       this.bindAppEvents();
-      await this.loadDatabase();
       window.addEventListener("popstate", () => {
-        this.router();
+        void this.router();
       });
+      const restoredCachedState = this.restoreAppDataCache();
+
+      if (restoredCachedState) {
+        await this.router();
+        void this.loadDatabase({
+          showLoading: false,
+          rerenderOnComplete: true,
+        }).catch(async (error) => {
+          await this.handleInitError(error);
+        });
+        return;
+      }
+
+      await this.loadDatabase();
       await this.router();
     } catch (error) {
-      console.error("App init failed:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return;
+      await this.handleInitError(error);
+    }
+  },
+
+  async handleInitError(error) {
+    console.error("App init failed:", error);
+    if (await this.handleAccessRestriction(error)) {
+      return;
+    }
+    if (
+      this.isAuthSessionError(error) ||
+      String(error?.message || "") === "No active session."
+    ) {
+      return;
+    }
+    this.showFatalLoadError(error?.message || "App initialization failed.");
+  },
+
+  getPageStateForView(view) {
+    const normalizedView = view === "home" ? "home" : view;
+    const titles = {
+      home: "Bitramed Home",
+      modules: "Bitramed Modules",
+      subtopics: "Bitramed Subtopics",
+      types: "Bitramed Question Types",
+      quizzes: "Bitramed Quizzes",
+      setup: "Bitramed Quiz Setup",
+      quiz: "Bitramed Quiz",
+      results: "Bitramed Results",
+      account: "Bitramed Account",
+      settings: "Bitramed Settings",
+      access: "Bitramed Access",
+    };
+
+    return {
+      bodyPage: normalizedView,
+      title: titles[normalizedView] || "Bitramed",
+    };
+  },
+
+  syncPageState(view) {
+    const pageState = this.getPageStateForView(view);
+    if (document.body) {
+      document.body.dataset.appPage = pageState.bodyPage;
+    }
+    document.title = pageState.title;
+  },
+
+  getAppDataCacheKey() {
+    const userId = String(this.state.currentUser?.id || "").trim();
+    return userId ? `bitramed:learner-cache:${userId}` : "";
+  },
+
+  clearPersistedAppDataCache() {
+    const storageKey = this.getAppDataCacheKey();
+    if (!storageKey) return;
+
+    try {
+      window.sessionStorage.removeItem(storageKey);
+    } catch (error) {
+      console.error("Learner cache clear failed:", error);
+    }
+  },
+
+  scheduleAppDataCacheWrite() {
+    if (this.restoringAppDataCache || !this.state.currentUser) return;
+
+    if (this.appDataCacheWriteTimer) {
+      window.clearTimeout(this.appDataCacheWriteTimer);
+    }
+
+    this.appDataCacheWriteTimer = window.setTimeout(() => {
+      this.appDataCacheWriteTimer = null;
+      this.persistAppDataCache();
+    }, 80);
+  },
+
+  persistAppDataCache() {
+    const storageKey = this.getAppDataCacheKey();
+    if (!storageKey) return;
+
+    const snapshot = {
+      version: this.appDataCacheVersion,
+      savedAt: Date.now(),
+      accessStatus: this.state.accessStatus,
+      levelList: this.state.levelList,
+      levelIdByName: this.state.levelIdByName,
+      areaList: this.state.areaList,
+      areasByLevel: this.state.areasByLevel,
+      modulesByArea: this.state.modulesByArea,
+      subtopicProgressByArea: this.state.subtopicProgressByArea,
+      quizzesByModule: this.state.quizzesByModule,
+      quizMap: this.state.quizMap,
+      quizDetailsById: this.state.quizDetailsById,
+      attempts: this.state.attempts,
+      moduleTypeCountsByModule: this.state.moduleTypeCountsByModule,
+      searchIndexLoaded: this.state.search.indexLoaded,
+    };
+
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
+    } catch (error) {
+      console.error("Learner cache write failed:", error);
+    }
+  },
+
+  restoreAppDataCache() {
+    const storageKey = this.getAppDataCacheKey();
+    if (!storageKey) return false;
+
+    try {
+      const rawSnapshot = window.sessionStorage.getItem(storageKey);
+      if (!rawSnapshot) return false;
+
+      const snapshot = JSON.parse(rawSnapshot);
+      const savedAt = Number(snapshot?.savedAt || 0);
+      const isFresh = Date.now() - savedAt < 1000 * 60 * 10;
+      const isValidVersion = snapshot?.version === this.appDataCacheVersion;
+
+      if (!isFresh || !isValidVersion) {
+        window.sessionStorage.removeItem(storageKey);
+        return false;
       }
-      if (
-        this.isAuthSessionError(error) ||
-        String(error?.message || "") === "No active session."
-      ) {
-        return;
-      }
-      this.showFatalLoadError(error?.message || "App initialization failed.");
+
+      this.restoringAppDataCache = true;
+      this.state.accessStatus = snapshot?.accessStatus || null;
+      this.state.levelList = Array.isArray(snapshot?.levelList)
+        ? snapshot.levelList
+        : [];
+      this.state.levelIdByName =
+        snapshot?.levelIdByName && typeof snapshot.levelIdByName === "object"
+          ? snapshot.levelIdByName
+          : {};
+      this.state.areaList = Array.isArray(snapshot?.areaList)
+        ? snapshot.areaList
+        : [];
+      this.state.areasByLevel =
+        snapshot?.areasByLevel && typeof snapshot.areasByLevel === "object"
+          ? snapshot.areasByLevel
+          : {};
+      this.state.modulesByArea =
+        snapshot?.modulesByArea && typeof snapshot.modulesByArea === "object"
+          ? snapshot.modulesByArea
+          : {};
+      this.state.subtopicProgressByArea =
+        snapshot?.subtopicProgressByArea &&
+        typeof snapshot.subtopicProgressByArea === "object"
+          ? snapshot.subtopicProgressByArea
+          : {};
+      this.state.quizzesByModule =
+        snapshot?.quizzesByModule && typeof snapshot.quizzesByModule === "object"
+          ? snapshot.quizzesByModule
+          : {};
+      this.state.quizMap =
+        snapshot?.quizMap && typeof snapshot.quizMap === "object"
+          ? snapshot.quizMap
+          : {};
+      this.state.quizDetailsById =
+        snapshot?.quizDetailsById &&
+        typeof snapshot.quizDetailsById === "object"
+          ? snapshot.quizDetailsById
+          : {};
+      this.state.moduleTypeCountsByModule =
+        snapshot?.moduleTypeCountsByModule &&
+        typeof snapshot.moduleTypeCountsByModule === "object"
+          ? snapshot.moduleTypeCountsByModule
+          : {};
+      this.state.search.indexLoaded = !!snapshot?.searchIndexLoaded;
+      this.setAttemptsData(
+        Array.isArray(snapshot?.attempts) ? snapshot.attempts : []
+      );
+      this.restoringAppDataCache = false;
+
+      return (
+        !!this.state.accessStatus ||
+        !!this.state.levelList.length ||
+        !!this.state.attempts.length
+      );
+    } catch (error) {
+      this.restoringAppDataCache = false;
+      console.error("Learner cache restore failed:", error);
+      this.clearPersistedAppDataCache();
+      return false;
     }
   },
 
@@ -114,6 +303,7 @@ export const learnerCore = {
       searchResults: document.getElementById("search-results"),
       toast: document.getElementById("toast"),
       loadingView: document.getElementById("loading-view"),
+      dashboardGreetingRow: document.getElementById("dashboard-greeting-row"),
       dashboardGreeting: document.getElementById("dashboard-greeting"),
       dashboardGreetingName: document.getElementById("dashboard-greeting-name"),
       dashboardOverallRing: document.getElementById("dashboard-overall-ring"),
@@ -594,14 +784,14 @@ export const learnerCore = {
       window.location.pathname
         .replace(/^\/+|\/+$/g, "")
         .split("/")
-        .filter(Boolean)[0] || "dashboard";
+        .filter(Boolean)[0] || "home";
     if (routeRoot === "account") return "Account";
     if (routeRoot === "settings") return "Settings";
     if (this.state.currentQuizTitle) return this.state.currentQuizTitle;
     if (this.state.currentSub) return this.state.currentSub;
     if (this.state.currentArea) return this.state.currentArea;
     if (this.state.currentLevel) return this.state.currentLevel;
-    return "Dashboard";
+    return "Home";
   },
 
   getMenuCurrentView() {
@@ -609,7 +799,7 @@ export const learnerCore = {
       window.location.pathname
         .replace(/^\/+|\/+$/g, "")
         .split("/")
-        .filter(Boolean)[0] || "dashboard";
+        .filter(Boolean)[0] || "home";
     if (routeRoot === "account") return "account";
     if (routeRoot === "settings") return "settings";
     return "home";
@@ -819,6 +1009,7 @@ export const learnerCore = {
       this.showToast("Sign out failed.");
       return;
     }
+    this.clearPersistedAppDataCache();
     window.location.replace("/");
   },
 
@@ -884,7 +1075,7 @@ export const learnerCore = {
           this.renderAccessGate();
           break;
         }
-        await this.navigate("home");
+        this.reloadHomeRoute();
         break;
       case "account":
         this.closeAllTopbarUI();
@@ -1266,6 +1457,10 @@ export const learnerCore = {
     this.state.quizMap = {};
     this.state.quizDetailsById = {};
     this.state.questionsByQuizId = {};
+    this.state.attempts = [];
+    this.state.attemptsSignature = "";
+    this.state.attemptsByQuizId = {};
+    this.state.userStats = null;
     this.state.activeQuestions = [];
     this.state.accountSummary = null;
     this.state.quizAttemptSummariesById = {};
@@ -1273,6 +1468,7 @@ export const learnerCore = {
     this.state.search.indexLoaded = false;
     this.state.search.results = [];
     this.state.search.activeIndex = -1;
+    this.clearPersistedAppDataCache();
   },
 
   async hardRefreshFromDatabase() {
@@ -1293,19 +1489,26 @@ export const learnerCore = {
     await this.router();
   },
 
-  async loadDatabase() {
+  async loadDatabase({ showLoading = true, rerenderOnComplete = false } = {}) {
     await this.loadAccessStatus();
     if (!this.hasActiveAccess()) {
       this.clearLocalCaches();
       this.renderAccessGate();
       return;
     }
+
+    if (!showLoading) {
+      await this.refreshDatabase({
+        silent: !rerenderOnComplete,
+        forceToast: false,
+        includePersonalization: true,
+      });
+      return;
+    }
+
     this.showLoadingView();
-    await this.refreshDatabase({
-      silent: true,
-      forceToast: false,
-      includePersonalization: true,
-    });
+    await Promise.all([this.loadAreaCatalog(), this.loadPersonalizationData()]);
+    await this.router();
   },
 
   withTimeout(promise, ms, label = "Request") {
@@ -1361,7 +1564,7 @@ export const learnerCore = {
 
     switch (view) {
       case "home":
-        return "/dashboard/";
+        return "/home/";
       case "modules":
         return `/modules/?${new URLSearchParams({
           level: cleanParams.level || "",
@@ -1390,7 +1593,7 @@ export const learnerCore = {
           cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
         return quizId
           ? `/setup/?${new URLSearchParams({ quizId }).toString()}`
-          : "/dashboard/";
+          : "/home/";
       }
       case "quiz": {
         const quizId =
@@ -1404,7 +1607,7 @@ export const learnerCore = {
                   ? cleanParams.duration
                   : "",
             }).toString()}`
-          : "/dashboard/";
+          : "/home/";
       }
       case "results": {
         const quizId =
@@ -1418,7 +1621,7 @@ export const learnerCore = {
                   ? cleanParams.duration
                   : "",
             }).toString()}`
-          : "/dashboard/";
+          : "/home/";
       }
       case "account":
         return "/account/";
@@ -1426,9 +1629,19 @@ export const learnerCore = {
         return "/settings/";
       default:
         return query.toString()
-          ? `/dashboard/?${query.toString()}`
-          : "/dashboard/";
+          ? `/home/?${query.toString()}`
+          : "/home/";
     }
+  },
+
+  reloadHomeRoute() {
+    const homePath = this.buildPath("home");
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl === homePath) {
+      window.location.reload();
+      return;
+    }
+    window.location.assign(homePath);
   },
 
   getQuizIdForRouteParams(params = {}) {
@@ -1456,10 +1669,12 @@ export const learnerCore = {
     }
 
     if (options.replace) {
-      window.location.replace(path);
+      window.history.replaceState({}, "", path);
     } else {
-      window.location.assign(path);
+      window.history.pushState({}, "", path);
     }
+
+    await this.router();
   },
 
   async router() {
@@ -1474,7 +1689,7 @@ export const learnerCore = {
       .replace(/^\/+|\/+$/g, "")
       .split("/")
       .filter(Boolean);
-    const [root = "dashboard"] = segments;
+    const [root = "home"] = segments;
     const params = new URLSearchParams(window.location.search);
 
     this.state.currentLevel = "";
@@ -1490,7 +1705,12 @@ export const learnerCore = {
 
     let view = "home";
 
-    if (!segments.length || root === "dashboard" || root === "app.html") {
+    if (
+      !segments.length ||
+      root === "home" ||
+      root === "dashboard" ||
+      root === "app.html"
+    ) {
       view = "home";
     } else if (root === "modules") {
       view = "modules";
@@ -1535,6 +1755,8 @@ export const learnerCore = {
     } else if (root === "settings") {
       view = "settings";
     }
+
+    this.syncPageState(view);
 
     if (
       ["setup", "quiz", "results"].includes(view) &&
@@ -1601,6 +1823,7 @@ export const learnerCore = {
   },
 
   renderAccessGate(statusOverride = null) {
+    this.syncPageState("access");
     const access = statusOverride || this.state.accessStatus || {};
     const status = String(access.status || "no_access");
     const expiresAt = access.accessExpiresAt

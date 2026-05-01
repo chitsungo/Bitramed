@@ -1,11 +1,11 @@
 export function renderLearnerShell() {
   const root = document.getElementById("app-route-root");
-  const page = document.body.dataset.appPage || "dashboard";
+  const page = document.body.dataset.appPage || "home";
 
   if (!root) return;
 
   const pageTitles = {
-    dashboard: "Bitramed Dashboard",
+    home: "Bitramed Home",
     modules: "Bitramed Modules",
     subtopics: "Bitramed Subtopics",
     types: "Bitramed Question Types",
@@ -25,9 +25,9 @@ export function renderLearnerShell() {
           <div class="dashboard-hero-copy">
             <div class="browse-eyebrow">
               <span class="browse-eyebrow-line"></span>
-              <span class="browse-eyebrow-text">Learning Dashboard</span>
+              <span class="browse-eyebrow-text">Learning Home</span>
             </div>
-            <div class="dashboard-greeting-row">
+            <div id="dashboard-greeting-row" class="dashboard-greeting-row">
               <h2 id="dashboard-greeting" class="dashboard-greeting">Good morning,</h2>
               <p id="dashboard-greeting-name" class="dashboard-greeting-name">Learner.</p>
             </div>
@@ -730,7 +730,7 @@ export function renderLearnerShell() {
               <div class="menu-session-left">
                 <span id="menu-session-dot" class="menu-session-dot" aria-hidden="true"></span>
                 <div class="menu-session-copy">
-                  <span id="menu-session-text" class="menu-session-text">Dashboard</span>
+                  <span id="menu-session-text" class="menu-session-text">Home</span>
                 </div>
               </div>
               <span id="menu-session-time" class="menu-session-time">Live</span>
@@ -754,7 +754,7 @@ export function renderLearnerShell() {
                   </svg>
                 </span>
                 <span class="menu-action-copy">
-                  <strong>Dashboard</strong>
+                  <strong>Home</strong>
                 </span>
                 <span class="menu-item-arrow" aria-hidden="true">
                   <svg viewBox="0 0 24 24">
@@ -936,9 +936,11 @@ export function renderLearnerShell() {
       <div id="toast" class="toast" aria-live="polite"></div>
 
       <main class="main-wrap">
-        <section id="loading-view" class="panel">
-          <div class="spinner"></div>
-          <p class="muted centered">Loading ...</p>
+        <section id="loading-view" class="loading-view" aria-live="polite" aria-busy="true">
+          <div class="loading-view-stage">
+            <div class="loader" aria-hidden="true"></div>
+            <p class="loading-view-copy">Loading</p>
+          </div>
         </section>
         ${orderedViews}
       </main>

@@ -1056,7 +1056,7 @@ test("root recovery links reroute to the update password page", async ({
 }) => {
   await stubSupabase(page);
   await page.goto(
-    "/?next=%2Fdashboard%2F#access_token=recovery-token&refresh_token=refresh-token&type=recovery"
+    "/?next=%2Fhome%2F#access_token=recovery-token&refresh_token=refresh-token&type=recovery"
   );
 
   await expect
@@ -1064,7 +1064,7 @@ test("root recovery links reroute to the update password page", async ({
     .toBe("/update-password/");
   await expect
     .poll(() => new URL(page.url()).searchParams.get("next"))
-    .toBe("/dashboard/");
+    .toBe("/home/");
   await expect.poll(() => new URL(page.url()).hash).toContain("type=recovery");
 });
 
@@ -1135,7 +1135,7 @@ test("password reset page validates and returns to login after success", async (
   page,
 }) => {
   await stubSupabase(page, { recoverySession: true });
-  await page.goto("/update-password/?next=%2Fdashboard%2F");
+  await page.goto("/update-password/?next=%2Fhome%2F");
 
   await expect(page.locator("#passwordResetForm")).toBeVisible();
 
@@ -1174,7 +1174,7 @@ test("password reset page validates and returns to login after success", async (
 
 test("learner dashboard shell loads", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, theme: "dark" });
-  await page.goto("/dashboard/");
+  await page.goto("/home/");
   await expectCanonicalFavicon(page);
   await expect(page.locator("#access-view")).toBeVisible();
   await expect(page.locator("body")).toHaveClass(/dark-mode/);
@@ -1232,7 +1232,7 @@ test("learner dashboard shell loads", async ({ page }) => {
 test("learner menu routes and tools work", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, hasAccess: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/dashboard/");
+  await page.goto("/home/");
   await expect(page.locator("#dashboard-view")).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
@@ -1254,7 +1254,7 @@ test("learner menu routes and tools work", async ({ page }) => {
   await page.click("#menu-toggle-btn");
   await page.click("#menu-home-btn");
   await expect(page.locator("#dashboard-view")).toBeVisible();
-  await expect.poll(() => new URL(page.url()).pathname).toMatch(/dashboard/);
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/home/);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -1309,7 +1309,7 @@ test("learner mobile browse routes keep full-width cards and stable stats", asyn
   await stubSupabase(page, { signedIn: true, hasAccess: true, theme: "dark" });
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await page.goto("/dashboard/");
+  await page.goto("/home/");
   await expect(page.locator("#dashboard-view")).toBeVisible();
   await expectTopbarFitsViewport(page);
   await expectNoHorizontalOverflow(page);
@@ -1563,7 +1563,7 @@ test("past papers draft restore remaps old shuffled answers onto source order", 
 test("learner mobile access gate fits the viewport", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, hasAccess: false, theme: "dark" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/dashboard/");
+  await page.goto("/home/");
   await expect(page.locator("#access-view")).toBeVisible();
   await expectTopbarFitsViewport(page);
   await expectNoHorizontalOverflow(page);

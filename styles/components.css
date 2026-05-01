@@ -290,16 +290,16 @@
 }
 
 .menu-session-dot {
-  width: 0.5rem;
-  height: 0.5rem;
+  width: 20px;
+  aspect-ratio: 1;
   border-radius: 999px;
   background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.25);
   transform: scale(1);
 }
 
 .menu-session-dot.is-pulsing {
-  animation: menu-session-pulse 0.62s ease;
+  animation: menu-session-pulse 1s ease-out;
 }
 
 .menu-session-text {
@@ -314,17 +314,12 @@
 @keyframes menu-session-pulse {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.34);
-  }
-
-  35% {
-    transform: scale(1.42);
-    box-shadow: 0 0 0 0.38rem rgba(16, 185, 129, 0.14);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.25);
   }
 
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 30px rgba(16, 185, 129, 0.08);
   }
 }
 

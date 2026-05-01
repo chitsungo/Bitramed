@@ -120,6 +120,7 @@ export const learnerFeatures = {
     this.state.areaList = levelList.flatMap(
       (level) => areasByLevel[level.name] || []
     );
+    this.scheduleAppDataCacheWrite();
   },
 
   async loadPersonalizationData() {
@@ -388,12 +389,47 @@ export const learnerFeatures = {
     return true;
   },
 
+  buildAttemptsSignature(attempts) {
+    return (attempts || [])
+      .map((attempt) =>
+        [
+          attempt?.id ? `id:${attempt.id}` : "",
+          attempt?.quizId || "",
+          attempt?.mode || "",
+          Number(attempt?.score || 0),
+          Number(attempt?.totalQuestions || 0),
+          Number(attempt?.correctCount || 0),
+          Number(attempt?.wrongCount || 0),
+          Number(attempt?.unansweredCount || 0),
+          Number(attempt?.percentage || 0),
+          attempt?.completedAt || "",
+        ].join("|||")
+      )
+      .join("::::");
+  },
+
+  invalidateAttemptDerivedCaches() {
+    this.state.subtopicProgressByArea = {};
+    this.state.accountSummary = null;
+    this.state.quizAttemptSummariesById = {};
+  },
+
   setAttemptsData(attempts) {
     const normalizedAttempts = this.normalizeAttempts(attempts);
+    const attemptsSignature = this.buildAttemptsSignature(normalizedAttempts);
+    const attemptsChanged = attemptsSignature !== this.state.attemptsSignature;
+
     this.state.attempts = normalizedAttempts;
+    this.state.attemptsSignature = attemptsSignature;
     this.state.attemptsByQuizId =
       this.groupAttemptsByQuizId(normalizedAttempts);
     this.state.userStats = this.buildUserStats(normalizedAttempts);
+
+    if (attemptsChanged && !this.restoringAppDataCache) {
+      this.invalidateAttemptDerivedCaches();
+    }
+
+    this.scheduleAppDataCacheWrite();
   },
 
   normalizeAttempts(attempts) {
@@ -650,25 +686,10 @@ export const learnerFeatures = {
     };
   },
 
-  getCompletionPercent({ doneCount = 0, totalCount = 0 } = {}) {
-    return totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
-  },
-
-  async getAreaProgressSummary(level, area) {
-    if (!level || !area) {
-      return {
-        doneCount: 0,
-        totalCount: 0,
-        moduleCount: 0,
-        percent: 0,
-      };
-    }
-
-    const modules = await this.ensureAreaModulesLoaded(area, level);
-    const progressByModule = await this.getAreaModuleProgress(area, level);
-    const summary = modules.reduce(
+  buildAreaAssessmentSummary(modules, progressByModule) {
+    const summary = (modules || []).reduce(
       (aggregate, moduleRecord) => {
-        const progress = progressByModule[moduleRecord.name] || {
+        const progress = progressByModule?.[moduleRecord.name] || {
           doneCount: 0,
           totalCount: 0,
         };
@@ -684,12 +705,138 @@ export const learnerFeatures = {
 
     return {
       ...summary,
-      moduleCount: modules.length,
+      moduleCount: (modules || []).length,
       percent: this.getCompletionPercent(summary),
     };
   },
 
+  getCompletionPercent({ doneCount = 0, totalCount = 0 } = {}) {
+    return totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+  },
+
+  getCachedAreaModuleProgress(area, levelOverride = this.state.currentLevel) {
+    if (!area) return null;
+
+    const level = levelOverride;
+    const cacheKey = this.getAreaCacheKey(level, area);
+    if (this.state.subtopicProgressByArea[cacheKey]) {
+      return this.state.subtopicProgressByArea[cacheKey];
+    }
+
+    const modules = this.state.modulesByArea[cacheKey];
+    if (!Array.isArray(modules)) {
+      return null;
+    }
+
+    const progressEntries = [];
+    for (const moduleRecord of modules) {
+      const moduleData =
+        this.state.quizzesByModule[
+          this.getModuleCacheKey(level, area, moduleRecord.name)
+        ];
+      if (!moduleData) {
+        return null;
+      }
+
+      progressEntries.push([
+        moduleRecord.name,
+        this.buildModuleAssessmentSummary({
+          moduleData,
+          level,
+          area,
+          sub: moduleRecord.name,
+        }),
+      ]);
+    }
+
+    const progressByModule = Object.fromEntries(progressEntries);
+    this.state.subtopicProgressByArea[cacheKey] = progressByModule;
+    this.scheduleAppDataCacheWrite();
+    return progressByModule;
+  },
+
+  getCachedAreaProgressSummary(level, area) {
+    if (!level || !area) {
+      return null;
+    }
+
+    const modules = this.state.modulesByArea[this.getAreaCacheKey(level, area)];
+    if (!Array.isArray(modules)) {
+      return null;
+    }
+
+    const progressByModule = this.getCachedAreaModuleProgress(area, level);
+    if (!progressByModule) {
+      return null;
+    }
+
+    return this.buildAreaAssessmentSummary(modules, progressByModule);
+  },
+
+  getCachedLevelProgressSummary(level) {
+    if (!level) {
+      return null;
+    }
+
+    const areas = this.state.areasByLevel[level] || [];
+    const areaSummaries = [];
+
+    for (const areaRecord of areas) {
+      const areaSummary = this.getCachedAreaProgressSummary(
+        level,
+        areaRecord.name
+      );
+      if (!areaSummary) {
+        return null;
+      }
+      areaSummaries.push(areaSummary);
+    }
+
+    const summary = areaSummaries.reduce(
+      (aggregate, areaSummary) => {
+        aggregate.doneCount += Number(areaSummary.doneCount || 0);
+        aggregate.totalCount += Number(areaSummary.totalCount || 0);
+        return aggregate;
+      },
+      {
+        doneCount: 0,
+        totalCount: 0,
+      }
+    );
+
+    return {
+      ...summary,
+      courseCount: areas.length,
+      percent: this.getCompletionPercent(summary),
+    };
+  },
+
+  async getAreaProgressSummary(level, area) {
+    const cachedSummary = this.getCachedAreaProgressSummary(level, area);
+    if (cachedSummary) {
+      return cachedSummary;
+    }
+
+    if (!level || !area) {
+      return {
+        doneCount: 0,
+        totalCount: 0,
+        moduleCount: 0,
+        percent: 0,
+      };
+    }
+
+    const modules = await this.ensureAreaModulesLoaded(area, level);
+    const progressByModule = await this.getAreaModuleProgress(area, level);
+    return this.buildAreaAssessmentSummary(modules, progressByModule);
+  },
+
   async getLevelProgressSummary(level) {
+    const cachedSummary = this.getCachedLevelProgressSummary(level);
+    if (cachedSummary) {
+      return cachedSummary;
+    }
+
     if (!level) {
       return {
         doneCount: 0,
@@ -884,6 +1031,24 @@ export const learnerFeatures = {
     return `${level}|||${area}|||${sub}`;
   },
 
+  hasAreaModulesCached(level, area) {
+    return Array.isArray(
+      this.state.modulesByArea[this.getAreaCacheKey(level, area)]
+    );
+  },
+
+  hasAreaProgressCached(level, area) {
+    return !!this.state.subtopicProgressByArea[
+      this.getAreaCacheKey(level, area)
+    ];
+  },
+
+  hasModuleQuizzesCached(level, area, sub) {
+    return !!this.state.quizzesByModule[
+      this.getModuleCacheKey(level, area, sub)
+    ];
+  },
+
   getAreaRecord(level, area) {
     return (
       (this.state.areasByLevel[level] || []).find(
@@ -923,6 +1088,7 @@ export const learnerFeatures = {
       .sort((a, b) => this.compareDisplayOrder(a.name, b.name));
 
     this.state.modulesByArea[cacheKey] = modules;
+    this.scheduleAppDataCacheWrite();
     return modules;
   },
 
@@ -963,8 +1129,9 @@ export const learnerFeatures = {
     if (!area) return {};
     const level = levelOverride;
     const cacheKey = this.getAreaCacheKey(level, area);
-    if (this.state.subtopicProgressByArea[cacheKey]) {
-      return this.state.subtopicProgressByArea[cacheKey];
+    const cachedProgress = this.getCachedAreaModuleProgress(area, level);
+    if (cachedProgress) {
+      return cachedProgress;
     }
 
     const modules = await this.ensureAreaModulesLoaded(area, level);
@@ -990,6 +1157,7 @@ export const learnerFeatures = {
 
     const progress = Object.fromEntries(progressEntries);
     this.state.subtopicProgressByArea[cacheKey] = progress;
+    this.scheduleAppDataCacheWrite();
     return progress;
   },
 
@@ -1096,6 +1264,7 @@ export const learnerFeatures = {
       sba: Object.keys(moduleData.sba || {}).length,
       tf: Object.keys(moduleData.tf || {}).length,
     };
+    this.scheduleAppDataCacheWrite();
     return moduleData;
   },
 
@@ -1309,6 +1478,7 @@ export const learnerFeatures = {
       this.state.quizzesByModule[cacheKey] = grouped;
     });
 
+    this.scheduleAppDataCacheWrite();
     return groupedByModule;
   },
 
@@ -1365,6 +1535,7 @@ export const learnerFeatures = {
       this.state.quizzesByModule[cacheKey] = grouped;
     });
 
+    this.scheduleAppDataCacheWrite();
     return groupedByModule;
   },
 
@@ -1771,6 +1942,26 @@ export const learnerFeatures = {
       : !!metaLabel || !!secondaryMetaText;
     const hasMetric = !!metricValue || !!metricLabel;
     const hasProgressBar = !locked && !!progressLabel && safePercent > 0;
+    const metricClassName = hasMetric
+      ? "browse-card-metric"
+      : "browse-card-metric is-empty";
+    const progressClassName = hasProgressBar
+      ? "browse-card-progress"
+      : locked
+        ? "browse-card-progress is-empty"
+        : "browse-card-progress is-ghost";
+    const progressFillPercent = hasProgressBar ? safePercent : 0;
+    const progressText = `${hasProgressBar ? safePercent : 0}%`;
+    const metaClassName = hasMetaRow
+      ? "browse-card-meta"
+      : "browse-card-meta is-empty";
+    const trailingClassName = [
+      "browse-card-trailing",
+      hasMetric ? "" : "is-arrow-only",
+      locked ? "has-hidden-action" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     return `
       <div class="browse-card ${this.escapeHtml(toneClass || "tone-1")} ${locked ? "locked" : ""}">
@@ -1800,81 +1991,259 @@ export const learnerFeatures = {
               </div>
             </div>
             <div class="browse-card-name browse-card-title">${this.escapeHtml(title)}</div>
-            ${
-              hasMetaRow
-                ? `
-              <div class="browse-card-meta">
-                ${
-                  metaLabel
+            <div class="${metaClassName}">
+              ${
+                metaLabel
+                  ? `
+                <span class="browse-meta-item ${showMetaIcon ? "" : "is-plain"}">
+                  ${showMetaIcon ? this.getBrowseMetaIcon(metaKind) : ""}
+                  ${this.escapeHtml(metaLabel)}
+                </span>
+              `
+                  : ""
+              }
+              ${
+                !locked && secondaryMetaText
                     ? `
-                  <span class="browse-meta-item ${showMetaIcon ? "" : "is-plain"}">
-                    ${showMetaIcon ? this.getBrowseMetaIcon(metaKind) : ""}
-                    ${this.escapeHtml(metaLabel)}
-                  </span>
-                `
+                <span class="browse-meta-item is-plain">${this.escapeHtml(secondaryMetaText)}</span>
+              `
                     : ""
-                }
-                ${
-                  !locked && secondaryMetaText
-                      ? `
-                  <span class="browse-meta-item is-plain">${this.escapeHtml(secondaryMetaText)}</span>
-                `
-                      : ""
-                }
+              }
+            </div>
+            <div class="${progressClassName}" aria-hidden="true">
+              <div class="browse-card-progress-track">
+                <div class="browse-card-progress-fill" style="width:${progressFillPercent}%"></div>
               </div>
-            `
-                : ""
-            }
-            ${
-              hasProgressBar
-                ? `
-              <div class="browse-card-progress" aria-hidden="true">
-                <div class="browse-card-progress-track">
-                  <div class="browse-card-progress-fill" style="width:${safePercent}%"></div>
-                </div>
-              </div>
-            `
-                : ""
-            }
+              <span class="browse-card-progress-percent">${this.escapeHtml(progressText)}</span>
+            </div>
           </div>
-          <div class="browse-card-trailing ${locked ? "is-static" : ""} ${hasMetric ? "" : "is-arrow-only"}">
-            ${
-              hasMetric
-                ? `
-              <div class="browse-card-metric">
-                ${
-                  metricLabel
-                    ? `
-                  <div class="browse-card-metric-label">${this.escapeHtml(metricLabel)}</div>
-                `
-                    : ""
-                }
-                ${
-                  metricValue
-                    ? `
-                  <div class="browse-card-metric-value">${this.escapeHtml(metricValue)}</div>
-                `
-                    : ""
-                }
-              </div>
-            `
-                : ""
-            }
-            ${
-              locked
-                ? ``
-                : `
-              <div class="browse-card-chevron">
+          <div class="${trailingClassName}">
+            <div class="${metricClassName}">
+              ${
+                metricLabel
+                  ? `
+                <div class="browse-card-metric-label">${this.escapeHtml(metricLabel)}</div>
+              `
+                  : ""
+              }
+              ${
+                metricValue
+                  ? `
+                <div class="browse-card-metric-value">${this.escapeHtml(metricValue)}</div>
+              `
+                  : ""
+              }
+            </div>
+            <div class="browse-card-chevron ${locked ? "is-hidden" : ""}">
+              ${
+                locked
+                  ? ``
+                  : `
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M9 18l6-6-6-6"></path>
                 </svg>
-              </div>
-            `
-            }
+              `
+              }
+            </div>
           </div>
         </div>
       </div>
     `;
+  },
+
+  buildDashboardDisplayLevels() {
+    const existingLevelsByName = Object.fromEntries(
+      this.state.levelList.map((levelRecord) => [levelRecord.name, levelRecord])
+    );
+    const highestExistingYear = this.state.levelList.reduce(
+      (maxYear, levelRecord) => {
+        const levelNumber = Number(
+          String(levelRecord.name).match(/\d+/)?.[0] || 0
+        );
+        return Math.max(maxYear, levelNumber);
+      },
+      0
+    );
+    const dashboardYearCount = Math.max(
+      5,
+      highestExistingYear || this.state.levelList.length || 0
+    );
+
+    return Array.from({ length: dashboardYearCount }, (_, index) => {
+      const name = `Year ${index + 1}`;
+      return (
+        existingLevelsByName[name] || {
+          id: "",
+          name,
+          displayOrder: index + 1,
+          locked: true,
+        }
+      );
+    });
+  },
+
+  getDefaultLevelProgressSummary(levelRecord) {
+    return {
+      doneCount: 0,
+      totalCount: 0,
+      courseCount: (this.state.areasByLevel[levelRecord?.name] || []).length,
+      percent: 0,
+    };
+  },
+
+  renderDashboardLevelCard(card, levelRecord, index, summaryOverride = null) {
+    const level = levelRecord.name;
+    const isLocked = !!levelRecord.locked;
+    const levelSummary =
+      summaryOverride || this.getDefaultLevelProgressSummary(levelRecord);
+    const isComplete =
+      !isLocked &&
+      levelSummary.totalCount > 0 &&
+      levelSummary.doneCount === levelSummary.totalCount;
+    const levelNumber = String(level).match(/\d+/)?.[0] || String(index + 1);
+
+    card.className = "browse-card-button";
+    card.innerHTML = this.buildBrowseCardMarkup({
+      badge: `Y${levelNumber}`,
+      title: level,
+      kickerLabel: "",
+      toneClass: this.getBrowseToneClass(index),
+      statusLabel: isLocked
+        ? "Locked"
+        : isComplete
+          ? "Done"
+          : levelSummary.doneCount
+            ? "Active"
+            : "New",
+      statusClass: isLocked
+        ? "status-locked"
+        : isComplete
+          ? "status-complete"
+          : levelSummary.doneCount
+            ? "status-active"
+            : "status-fresh",
+      metaKind: isLocked ? "" : "book",
+      metaLabel: isLocked
+        ? ""
+        : `${levelSummary.courseCount} course${levelSummary.courseCount === 1 ? "" : "s"}`,
+      progressPercent: isLocked ? 0 : levelSummary.percent,
+      progressLabel: isLocked
+        ? ""
+        : levelSummary.doneCount
+          ? `${levelSummary.doneCount}/${levelSummary.totalCount}`
+          : "",
+      secondaryMetaText: "",
+      metricValue: isLocked
+        ? "Soon"
+        : levelSummary.doneCount
+          ? `${levelSummary.doneCount}/${levelSummary.totalCount}`
+          : "",
+      metricLabel: isLocked
+        ? "opens later"
+        : levelSummary.doneCount
+          ? "quizzes done"
+          : "",
+      locked: isLocked,
+      lockedLabel: "Available soon",
+    });
+
+    card.onclick = isLocked ? null : () => this.navigate("modules", { level });
+  },
+
+  renderAreaBrowseCard(card, level, areaRecord, index, summaryOverride = null) {
+    const areaSummary = summaryOverride || {
+      doneCount: 0,
+      totalCount: 0,
+      moduleCount: 0,
+      percent: 0,
+    };
+    const isComplete =
+      areaSummary.totalCount > 0 &&
+      areaSummary.doneCount === areaSummary.totalCount;
+    const initials = String(areaRecord.name)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+
+    card.className = "browse-card-button";
+    card.innerHTML = this.buildBrowseCardMarkup({
+      badge: initials || `C${index + 1}`,
+      title: areaRecord.name,
+      kickerLabel: "",
+      toneClass: this.getBrowseToneClass(index),
+      statusLabel: isComplete
+        ? "Done"
+        : areaSummary.doneCount
+          ? "Active"
+          : "New",
+      statusClass: isComplete
+        ? "status-complete"
+        : areaSummary.doneCount
+          ? "status-active"
+          : "status-fresh",
+      metaKind: areaSummary.moduleCount ? "chapter" : "",
+      metaLabel: areaSummary.moduleCount
+        ? `${areaSummary.moduleCount} chapter${areaSummary.moduleCount === 1 ? "" : "s"}`
+        : "",
+      progressPercent: areaSummary.percent,
+      progressLabel: areaSummary.doneCount
+        ? `${areaSummary.doneCount}/${areaSummary.totalCount}`
+        : "",
+      metricValue: areaSummary.doneCount
+        ? `${areaSummary.doneCount}/${areaSummary.totalCount}`
+        : "",
+      metricLabel: areaSummary.doneCount ? "quizzes done" : "",
+    });
+    card.onclick = () =>
+      this.navigate("subtopics", { level, area: areaRecord.name });
+  },
+
+  renderSubtopicBrowseCard(card, moduleRecord, index, progressOverride = null) {
+    const progress = progressOverride || {
+      doneCount: 0,
+      totalCount: 0,
+    };
+    const initials = String(moduleRecord.name)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+    const progressPercent = progress.totalCount
+      ? Math.round((progress.doneCount / progress.totalCount) * 100)
+      : 0;
+    const isComplete =
+      progress.doneCount === progress.totalCount && progress.totalCount;
+
+    card.className = "browse-card-button";
+    card.innerHTML = this.buildBrowseCardMarkup({
+      badge: initials || `C${index + 1}`,
+      title: moduleRecord.name,
+      kickerLabel: "",
+      toneClass: this.getBrowseToneClass(index),
+      statusLabel: progress.doneCount
+        ? isComplete
+          ? "Done"
+          : "Active"
+        : "New",
+      statusClass: progress.doneCount
+        ? isComplete
+          ? "status-complete"
+          : "status-active"
+        : "status-fresh",
+      metaKind: "chapter",
+      metaLabel: `${progress.totalCount} assessment${progress.totalCount === 1 ? "" : "s"}`,
+      progressPercent,
+      progressLabel: progress.doneCount ? `${progressPercent}% complete` : "",
+      secondaryMetaText: "",
+      metricValue:
+        progress.doneCount && progress.totalCount
+          ? `${progress.doneCount}/${progress.totalCount}`
+          : "",
+      metricLabel: progress.doneCount ? "done" : "",
+    });
   },
 
   showToast(message) {
@@ -2430,41 +2799,22 @@ export const learnerFeatures = {
   },
 
   async renderDashboard() {
-    this.showOnly("dashboard-view");
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     this.dom.areaGrid.innerHTML = "";
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
     const firstName =
       displayName.split(/\s+/).filter(Boolean)[0] || displayName;
-    const existingLevelsByName = Object.fromEntries(
-      this.state.levelList.map((levelRecord) => [levelRecord.name, levelRecord])
-    );
-    const highestExistingYear = this.state.levelList.reduce(
-      (maxYear, levelRecord) => {
-        const levelNumber = Number(
-          String(levelRecord.name).match(/\d+/)?.[0] || 0
-        );
-        return Math.max(maxYear, levelNumber);
-      },
-      0
-    );
-    const dashboardYearCount = Math.max(
-      5,
-      highestExistingYear || this.state.levelList.length || 0
-    );
-    const displayLevels = Array.from(
-      { length: dashboardYearCount },
-      (_, index) => {
-        const name = `Year ${index + 1}`;
-        return (
-          existingLevelsByName[name] || {
-            id: "",
-            name,
-            displayOrder: index + 1,
-            locked: true,
-          }
-        );
-      }
-    );
+    const greetingScale =
+      firstName.length >= 16
+        ? 0.72
+        : firstName.length >= 13
+          ? 0.8
+          : firstName.length >= 11
+            ? 0.88
+            : firstName.length >= 9
+              ? 0.94
+              : 1;
+    const displayLevels = this.buildDashboardDisplayLevels();
 
     const activeYears = this.state.levelList.filter((levelRecord) => {
       const attemptsForLevel = (this.state.attempts || []).filter((attempt) => {
@@ -2481,6 +2831,12 @@ export const learnerFeatures = {
     }
     if (this.dom.dashboardGreetingName) {
       this.dom.dashboardGreetingName.textContent = `${firstName}.`;
+    }
+    if (this.dom.dashboardGreetingRow) {
+      this.dom.dashboardGreetingRow.style.setProperty(
+        "--dashboard-greeting-scale",
+        String(greetingScale)
+      );
     }
     if (this.dom.dashboardOverallRing) {
       this.dom.dashboardOverallRing.style.setProperty(
@@ -2508,100 +2864,57 @@ export const learnerFeatures = {
       dashboardSectionCount.textContent = `${displayLevels.length} years total`;
     }
 
+    const cardByLevel = {};
+    displayLevels.forEach((levelRecord, index) => {
+      const card = document.createElement("div");
+      this.renderDashboardLevelCard(
+        card,
+        levelRecord,
+        index,
+        levelRecord.locked
+          ? this.getDefaultLevelProgressSummary(levelRecord)
+          : this.getCachedLevelProgressSummary(levelRecord.name) ||
+              this.getDefaultLevelProgressSummary(levelRecord)
+      );
+      this.dom.areaGrid.appendChild(card);
+      cardByLevel[levelRecord.name] = card;
+    });
+
+    this.showOnly("dashboard-view");
+
     const levelSummaries = await Promise.all(
       displayLevels.map(async (levelRecord) => [
         levelRecord.name,
         levelRecord.locked
-          ? {
-              doneCount: 0,
-              totalCount: 0,
-              courseCount: 0,
-              percent: 0,
-            }
+          ? this.getDefaultLevelProgressSummary(levelRecord)
           : await this.getLevelProgressSummary(levelRecord.name),
       ])
     );
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
+
     const levelSummaryByName = Object.fromEntries(levelSummaries);
-
     displayLevels.forEach((levelRecord, index) => {
-      const level = levelRecord.name;
-      const isLocked = !!levelRecord.locked;
-      const levelSummary = levelSummaryByName[level] || {
-        doneCount: 0,
-        totalCount: 0,
-        courseCount: 0,
-        percent: 0,
-      };
-      const isComplete =
-        !isLocked &&
-        levelSummary.totalCount > 0 &&
-        levelSummary.doneCount === levelSummary.totalCount;
-      const levelNumber = String(level).match(/\d+/)?.[0] || String(index + 1);
-
-      const card = document.createElement("div");
-      card.className = "browse-card-button";
-      card.innerHTML = this.buildBrowseCardMarkup({
-        badge: `Y${levelNumber}`,
-        title: level,
-        kickerLabel: "",
-        toneClass: this.getBrowseToneClass(index),
-        statusLabel: isLocked
-          ? "Locked"
-          : isComplete
-            ? "Done"
-            : levelSummary.doneCount
-            ? "Active"
-            : "New",
-        statusClass: isLocked
-          ? "status-locked"
-          : isComplete
-            ? "status-complete"
-            : levelSummary.doneCount
-            ? "status-active"
-            : "status-fresh",
-        metaKind: isLocked ? "" : "book",
-        metaLabel: isLocked
-          ? ""
-          : `${levelSummary.courseCount} course${levelSummary.courseCount === 1 ? "" : "s"}`,
-        progressPercent: isLocked ? 0 : levelSummary.percent,
-        progressLabel: isLocked
-          ? ""
-          : levelSummary.doneCount
-            ? `${levelSummary.doneCount}/${levelSummary.totalCount}`
-            : "",
-        secondaryMetaText: "",
-        metricValue: isLocked
-          ? "Soon"
-          : levelSummary.doneCount
-            ? `${levelSummary.doneCount}/${levelSummary.totalCount}`
-            : "",
-        metricLabel: isLocked
-          ? "opens later"
-          : levelSummary.doneCount
-            ? "quizzes done"
-            : "",
-        locked: isLocked,
-        lockedLabel: "Available soon",
-      });
-
-      if (!isLocked) {
-        card.onclick = () => this.navigate("modules", { level });
-      } else {
-        card.onclick = null;
-      }
-
-      this.dom.areaGrid.appendChild(card);
+      const card = cardByLevel[levelRecord.name];
+      if (!card) return;
+      this.renderDashboardLevelCard(
+        card,
+        levelRecord,
+        index,
+        levelSummaryByName[levelRecord.name]
+      );
     });
   },
 
   async renderModules() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     const level = this.state.currentLevel;
     if (!level || !this.state.levelIdByName[level]) {
       this.navigate("home");
       return;
     }
 
-    this.showOnly("modules-view");
     document.getElementById("module-page-title").textContent = level;
     document.getElementById("modules-page-kicker").textContent = level;
     document.getElementById("module-page-subtitle").textContent = "";
@@ -2610,67 +2923,48 @@ export const learnerFeatures = {
     this.dom.moduleGrid.innerHTML = "";
 
     const areaRecords = this.state.areasByLevel[level] || [];
+    const cardByArea = {};
+    areaRecords.forEach((areaRecord, index) => {
+      const card = document.createElement("div");
+      this.renderAreaBrowseCard(
+        card,
+        level,
+        areaRecord,
+        index,
+        this.getCachedAreaProgressSummary(level, areaRecord.name)
+      );
+      this.dom.moduleGrid.appendChild(card);
+      cardByArea[areaRecord.name] = card;
+    });
+
+    this.showOnly("modules-view");
+
     const areaSummaries = await Promise.all(
       areaRecords.map(async (areaRecord) => [
         areaRecord.name,
         await this.getAreaProgressSummary(level, areaRecord.name),
       ])
     );
-    const areaSummaryByName = Object.fromEntries(areaSummaries);
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
 
+    const areaSummaryByName = Object.fromEntries(areaSummaries);
     areaRecords.forEach((areaRecord, index) => {
-      const areaSummary = areaSummaryByName[areaRecord.name] || {
-        doneCount: 0,
-        totalCount: 0,
-        moduleCount: 0,
-        percent: 0,
-      };
-      const isComplete =
-        areaSummary.totalCount > 0 &&
-        areaSummary.doneCount === areaSummary.totalCount;
-      const initials = String(areaRecord.name)
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part.charAt(0).toUpperCase())
-        .join("");
-      const card = document.createElement("div");
-      card.className = "browse-card-button";
-      card.innerHTML = this.buildBrowseCardMarkup({
-        badge: initials || `C${index + 1}`,
-        title: areaRecord.name,
-        kickerLabel: "",
-        toneClass: this.getBrowseToneClass(index),
-        statusLabel: isComplete
-          ? "Done"
-          : areaSummary.doneCount
-            ? "Active"
-            : "New",
-        statusClass: isComplete
-          ? "status-complete"
-          : areaSummary.doneCount
-            ? "status-active"
-            : "status-fresh",
-        metaKind: areaSummary.moduleCount ? "chapter" : "",
-        metaLabel: areaSummary.moduleCount
-          ? `${areaSummary.moduleCount} chapter${areaSummary.moduleCount === 1 ? "" : "s"}`
-          : "",
-        progressPercent: areaSummary.percent,
-        progressLabel: areaSummary.doneCount
-          ? `${areaSummary.doneCount}/${areaSummary.totalCount}`
-          : "",
-        metricValue: areaSummary.doneCount
-          ? `${areaSummary.doneCount}/${areaSummary.totalCount}`
-          : "",
-        metricLabel: areaSummary.doneCount ? "quizzes done" : "",
-      });
-      card.onclick = () =>
-        this.navigate("subtopics", { level, area: areaRecord.name });
-      this.dom.moduleGrid.appendChild(card);
+      const card = cardByArea[areaRecord.name];
+      if (!card) return;
+      this.renderAreaBrowseCard(
+        card,
+        level,
+        areaRecord,
+        index,
+        areaSummaryByName[areaRecord.name]
+      );
     });
   },
 
   async renderSubtopics() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     const { currentLevel, currentArea } = this.state;
     if (
       !currentLevel ||
@@ -2681,12 +2975,68 @@ export const learnerFeatures = {
       return;
     }
 
-    this.showLoadingView();
+    const areaCacheKey = this.getAreaCacheKey(currentLevel, currentArea);
+    const modulesWereCached = this.hasAreaModulesCached(
+      currentLevel,
+      currentArea
+    );
+
+    if (!modulesWereCached) {
+      this.showLoadingView();
+    }
 
     let modules;
-    let progressByModule = {};
     try {
       modules = await this.ensureAreaModulesLoaded(currentArea);
+    } catch (error) {
+      console.error("Module load failed:", error);
+      if (await this.handleAccessRestriction(error)) {
+        return;
+      }
+      this.showFatalLoadError(error?.message || "Could not load modules.");
+      return;
+    }
+
+    let progressByModule =
+      this.getCachedAreaModuleProgress(currentArea, currentLevel) || {};
+    const hasImmediateProgress = !!Object.keys(progressByModule).length;
+    document.getElementById("subtopics-page-title").textContent = currentArea;
+    document.getElementById("subtopics-page-kicker").textContent = currentLevel;
+    document.getElementById("subtopics-page-subtitle").textContent = "";
+    document.getElementById("subtopics-section-count").textContent =
+      `${modules.length} total`;
+    this.dom.subtopicsGrid.innerHTML = "";
+
+    const cardByModule = {};
+    modules.forEach((moduleRecord, index) => {
+      const card = document.createElement("div");
+      this.renderSubtopicBrowseCard(
+        card,
+        moduleRecord,
+        index,
+        progressByModule[moduleRecord.name]
+      );
+      card.onclick = () =>
+        this.navigate("types", {
+          level: currentLevel,
+          area: currentArea,
+          sub: moduleRecord.name,
+        });
+      this.dom.subtopicsGrid.appendChild(card);
+      cardByModule[moduleRecord.name] = card;
+    });
+
+    this.showOnly("subtopics-view");
+
+    if (
+      this.state.subtopicProgressByArea[areaCacheKey] ||
+      hasImmediateProgress ||
+      !modules.length
+    ) {
+      return;
+    }
+
+    try {
       const progressEntries = await Promise.all(
         modules.map(async (moduleRecord) => {
           const moduleData = await this.ensureModuleQuizzesLoaded(
@@ -2704,78 +3054,38 @@ export const learnerFeatures = {
           ];
         })
       );
+
       progressByModule = Object.fromEntries(progressEntries);
-      this.state.subtopicProgressByArea[
-        this.getAreaCacheKey(currentLevel, currentArea)
-      ] = progressByModule;
+      this.state.subtopicProgressByArea[areaCacheKey] = progressByModule;
+      this.scheduleAppDataCacheWrite();
     } catch (error) {
-      console.error("Module load failed:", error);
+      console.error("Module progress load failed:", error);
       if (await this.handleAccessRestriction(error)) {
         return;
       }
-      this.showFatalLoadError(error?.message || "Could not load modules.");
+      this.showToast("Could not load module progress.");
       return;
     }
 
-    this.showOnly("subtopics-view");
-    document.getElementById("subtopics-page-title").textContent = currentArea;
-    document.getElementById("subtopics-page-kicker").textContent = currentLevel;
-    document.getElementById("subtopics-page-subtitle").textContent = "";
-    document.getElementById("subtopics-section-count").textContent =
-      `${modules.length} total`;
-    this.dom.subtopicsGrid.innerHTML = "";
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
 
     modules.forEach((moduleRecord, index) => {
-      const progress = progressByModule[moduleRecord.name] || {
-        doneCount: 0,
-        totalCount: 0,
-      };
-      const initials = String(moduleRecord.name)
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part.charAt(0).toUpperCase())
-        .join("");
-      const progressPercent = progress.totalCount
-        ? Math.round((progress.doneCount / progress.totalCount) * 100)
-        : 0;
-      const card = document.createElement("div");
-      card.className = "browse-card-button";
-      const isComplete =
-        progress.doneCount === progress.totalCount && progress.totalCount;
-      card.innerHTML = this.buildBrowseCardMarkup({
-        badge: initials || `C${index + 1}`,
-        title: moduleRecord.name,
-        kickerLabel: "",
-        toneClass: this.getBrowseToneClass(index),
-        statusLabel: progress.doneCount
-          ? isComplete
-            ? "Done"
-            : "Active"
-          : "New",
-        statusClass: progress.doneCount
-          ? isComplete
-            ? "status-complete"
-            : "status-active"
-          : "status-fresh",
-        metaKind: "chapter",
-        metaLabel: `${progress.totalCount} assessment${progress.totalCount === 1 ? "" : "s"}`,
-        progressPercent,
-        progressLabel: progress.doneCount ? `${progressPercent}% complete` : "",
-        secondaryMetaText: "",
-        metricValue:
-          progress.doneCount && progress.totalCount
-            ? `${progress.doneCount}/${progress.totalCount}`
-            : "",
-        metricLabel: progress.doneCount ? "done" : "",
-      });
+      const card = cardByModule[moduleRecord.name];
+      if (!card) return;
+      this.renderSubtopicBrowseCard(
+        card,
+        moduleRecord,
+        index,
+        progressByModule[moduleRecord.name]
+      );
       card.onclick = () =>
         this.navigate("types", {
           level: currentLevel,
           area: currentArea,
           sub: moduleRecord.name,
         });
-      this.dom.subtopicsGrid.appendChild(card);
     });
   },
 
@@ -2786,7 +3096,12 @@ export const learnerFeatures = {
       return;
     }
 
-    this.showLoadingView();
+    if (
+      !this.hasAreaModulesCached(currentLevel, currentArea) ||
+      !this.hasModuleQuizzesCached(currentLevel, currentArea, currentSub)
+    ) {
+      this.showLoadingView();
+    }
 
     let moduleData;
     try {
@@ -2832,7 +3147,6 @@ export const learnerFeatures = {
         )
       : 0;
 
-    this.showOnly("types-view");
     document.getElementById("types-page-title").textContent = currentSub;
     if (this.dom.typesPageKicker) {
       this.dom.typesPageKicker.textContent = "Question formats";
@@ -2946,6 +3260,8 @@ export const learnerFeatures = {
       }
       this.dom.typesGrid.appendChild(card);
     });
+
+    this.showOnly("types-view");
   },
 
   async renderQuizList() {
@@ -2959,7 +3275,12 @@ export const learnerFeatures = {
       return;
     }
 
-    this.showLoadingView();
+    if (
+      !this.hasAreaModulesCached(currentLevel, currentArea) ||
+      !this.hasModuleQuizzesCached(currentLevel, currentArea, currentSub)
+    ) {
+      this.showLoadingView();
+    }
 
     let moduleData;
     let modules;
@@ -3012,7 +3333,6 @@ export const learnerFeatures = {
         )
       : null;
 
-    this.showOnly("quiz-list-view");
     if (this.dom.quizListView) {
       this.dom.quizListView.classList.remove("type-sba", "type-tf");
       this.dom.quizListView.classList.add(`type-${currentType}`);
@@ -3069,6 +3389,7 @@ export const learnerFeatures = {
           <p>No ${this.escapeHtml(meta.label.toLowerCase())} quizzes are available for this topic yet.</p>
         </div>
       `;
+      this.showOnly("quiz-list-view");
       return;
     }
 
@@ -3137,6 +3458,8 @@ export const learnerFeatures = {
       };
       this.dom.quizList.appendChild(row);
     });
+
+    this.showOnly("quiz-list-view");
   },
 
   async renderSetup() {
@@ -3151,7 +3474,6 @@ export const learnerFeatures = {
       return;
     }
 
-    this.showOnly("setup-view");
     const meta = this.getTypeMeta(this.state.currentType);
     const setupView = document.getElementById("setup-view");
     const questionCount = Number(quizMeta.count || 0);
@@ -3196,10 +3518,10 @@ export const learnerFeatures = {
 
     let attemptStats = null;
     try {
-      attemptStats = await this.getQuizAttemptSummary(quizMeta.id);
+      attemptStats = this.getAttemptStatsForQuizId(quizMeta.id);
     } catch (error) {
       console.error("Setup summary load failed:", error);
-      attemptStats = this.getAttemptStatsForQuizId(quizMeta.id);
+      attemptStats = null;
     }
 
     const bestAttempt = this.getPreferredAttemptForDisplay(attemptStats);
@@ -3217,6 +3539,8 @@ export const learnerFeatures = {
       "Untimed practice with no negative marking. Reset freely and build recall.";
     document.getElementById("setup-exam-note").textContent =
       "Strictly timed with negative marking (-1 per wrong answer) for a realistic rehearsal.";
+
+    this.showOnly("setup-view");
   },
 
   async renderQuiz() {
@@ -3643,8 +3967,6 @@ export const learnerFeatures = {
       );
       return;
     }
-
-    this.showLoadingView();
 
     const stats =
       this.state.userStats || this.buildUserStats(this.state.attempts || []);
