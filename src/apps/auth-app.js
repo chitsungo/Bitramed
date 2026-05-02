@@ -414,6 +414,7 @@ export const authApp = {
       this.dom.toggleModeBtn.textContent = "Sign up";
       this.dom.signinPassword.autocomplete = "current-password";
       this.dom.signinPassword.placeholder = "Enter your password";
+      this.dom.signinPassword.value = "";
     } else if (isSignup) {
       this.dom.modalTitle.innerHTML =
         'Join <br class="hidden sm:block" /><span class="font-normal italic text-zinc-400">Bitramed.</span>';
@@ -422,6 +423,7 @@ export const authApp = {
       this.dom.toggleModeBtn.textContent = "Log in";
       this.dom.signinPassword.autocomplete = "new-password";
       this.dom.signinPassword.placeholder = "Create your password";
+      this.dom.signinPassword.value = "";
     } else {
       this.dom.modalTitle.innerHTML =
         'Reset <br class="hidden sm:block" /><span class="font-normal italic text-zinc-400">your password.</span>';
@@ -438,6 +440,9 @@ export const authApp = {
 
     if (this.dom.nameInputGroup) {
       this.dom.nameInputGroup.hidden = !isSignup;
+    }
+    if (this.dom.signupName) {
+      this.dom.signupName.required = isSignup;
     }
     if (this.dom.passwordInputGroup) {
       this.dom.passwordInputGroup.hidden = isResetRequest;
@@ -486,6 +491,8 @@ export const authApp = {
 
       await this.loadThemePreference(data?.user?.id);
       window.location.replace(this.getRedirectTarget());
+    } catch (error) {
+      this.showFeedback(error?.message || "Sign in failed.", "error");
     } finally {
       this.setButtonBusy(this.dom.submitBtn, false);
       this.rememberButtonMarkup(this.dom.submitBtn);
@@ -560,6 +567,8 @@ export const authApp = {
         "Account created. Check your email to confirm, then sign in.",
         "success"
       );
+    } catch (error) {
+      this.showFeedback(error?.message || "Account creation failed.", "error");
     } finally {
       this.setButtonBusy(this.dom.submitBtn, false);
       this.rememberButtonMarkup(this.dom.submitBtn);
@@ -595,6 +604,11 @@ export const authApp = {
       this.showFeedback(
         "If an account exists for that email, we've sent a password reset link.",
         "success"
+      );
+    } catch (error) {
+      this.showFeedback(
+        error?.message || "Could not send the password reset email.",
+        "error"
       );
     } finally {
       this.setButtonBusy(this.dom.submitBtn, false);
