@@ -231,6 +231,23 @@ export const passwordResetApp = {
         this.authSubscription = data?.subscription || null;
       }
 
+      // Supabase does not auto-exchange token_hash — must call verifyOtp explicitly
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+      const type = params.get("type");
+
+      if (tokenHash && type === "recovery") {
+        const { error } = await this.supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
+        if (error) {
+          this.showInvalidState();
+        }
+        // onAuthStateChange PASSWORD_RECOVERY fires on success
+        return;
+      }
+
       const session = await this.getExistingSession();
       if (session?.user) {
         await this.unlockReset(session);
@@ -241,7 +258,7 @@ export const passwordResetApp = {
         if (!this.recoveryReady) {
           this.showInvalidState();
         }
-      }, 800);
+      }, 3000);
     } catch (error) {
       console.error("Password reset recovery validation failed:", error);
       this.showInvalidState();

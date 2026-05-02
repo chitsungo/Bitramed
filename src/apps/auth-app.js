@@ -107,15 +107,15 @@ export const authApp = {
     const hashParams = this.getHashParams();
     const type = hashParams.get("type") || searchParams.get("type");
 
+    // Supabase always sets type=recovery in the hash for implicit-flow reset links.
+    // Do NOT check for access_token/refresh_token alone — OAuth callbacks also carry
+    // those tokens in the hash, which would incorrectly route Google sign-ins here.
     if (type === "recovery") {
       return true;
     }
 
-    return Boolean(
-      hashParams.get("access_token") ||
-        hashParams.get("refresh_token") ||
-        searchParams.get("token_hash")
-    );
+    // token_hash is used by the OTP/email-link flow and is recovery-specific.
+    return Boolean(searchParams.get("token_hash"));
   },
 
   routeRecoveryLinkIfNeeded() {
@@ -128,6 +128,17 @@ export const authApp = {
 
     if (next) {
       targetUrl.searchParams.set("next", next);
+    }
+
+    // Carry over token_hash and type so the reset page can exchange them
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenHash = searchParams.get("token_hash");
+    const type = searchParams.get("type");
+    if (tokenHash) {
+      targetUrl.searchParams.set("token_hash", tokenHash);
+    }
+    if (type) {
+      targetUrl.searchParams.set("type", type);
     }
 
     if (window.location.hash) {
