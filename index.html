@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="overscroll-none">
+<html lang="en" class="h-full overflow-hidden overscroll-none">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -12,14 +12,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap");
-
-    
-      .gpu-fixed {
-        -webkit-transform: translateZ(0);
-        transform: translateZ(0);
-        -webkit-backface-visibility: hidden;
-        backface-visibility: hidden;
-      }
 
       body {
         font-family:
@@ -154,10 +146,8 @@
       }
     </style>
   </head>
-  <body
-    class="auth-page selection:bg-[#d9534f]/30 flex min-h-screen flex-col overflow-x-hidden overscroll-none bg-black"
-  >
-    <div class="gpu-fixed pointer-events-none fixed inset-0 -z-20 overflow-hidden">
+  <body class="auth-page h-full overflow-hidden bg-black">
+    <div class="pointer-events-none fixed inset-0 -z-20 overflow-hidden">
       <img
         id="landing-background-image"
         src="https://frlujqujvpqwvtavofdq.supabase.co/storage/v1/object/public/Site%20Images/background.png"
@@ -174,6 +164,8 @@
     <div
       class="pointer-events-none fixed bottom-[-10%] right-[-5%] -z-10 h-[30vw] w-[30vw] rounded-full bg-[#d9534f]/[0.12] blur-[100px] animate-float animation-delay-2000"
     ></div>
+
+    <div class="relative z-10 h-full overflow-y-auto overflow-x-hidden flex flex-col overscroll-none selection:bg-[#d9534f]/30">
 
     <nav
       class="relative z-10 flex w-full items-center justify-between px-6 py-5"
@@ -368,6 +360,8 @@
         </div>
       </div>
     </main>
+
+    </div><!-- end scroll container -->
 
     <div
       id="authModal"
