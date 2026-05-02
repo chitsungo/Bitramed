@@ -566,7 +566,7 @@ export function renderLearnerShell() {
           </div>
 
           <h2 id="access-title" class="access-page-title">Access Restricted</h2>
-          <p id="access-message" class="access-page-subtitle">Your sign-in was successful, but your account does not have an active subscription to access the medical bank.</p>
+          <p id="access-message" class="access-page-subtitle">The account has no active subscription</p>
 
           <div class="access-identity-pill">
             <div class="access-identity-main">

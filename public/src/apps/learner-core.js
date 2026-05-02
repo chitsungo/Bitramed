@@ -1865,8 +1865,8 @@ export const learnerCore = {
         badgeTone: "warning",
         title: "Access Restricted",
         message:
-          "Your sign-in was successful, but your account does not have an active subscription to access the medical bank.",
-        identityStatus: "Account Verified",
+          "The account has no active subscription",
+        identityStatus: "Email Verified",
         identityTone: "success",
       },
       signed_out: {
