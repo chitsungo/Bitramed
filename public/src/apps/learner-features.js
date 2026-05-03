@@ -2302,7 +2302,7 @@ export const learnerFeatures = {
   normalizeExamDurationMinutes(value) {
     const parsed = Number.parseInt(String(value ?? ""), 10);
     if (!Number.isFinite(parsed)) return 10;
-    return Math.min(20, Math.max(5, parsed));
+    return Math.min(30, Math.max(5, parsed));
   },
 
   formatQuizTimer(totalSeconds) {
@@ -2315,11 +2315,11 @@ export const learnerFeatures = {
   async startExamModeFlow() {
     const durationMinutes = await durationPickerDialog({
       title: "Set exam duration",
-      message: "Choose a timed pass between 5 and 20 minutes.",
+      message: "Choose a timed pass between 5 and 30 minutes.",
       submitLabel: "Start exam",
       cancelLabel: "Cancel",
       min: 5,
-      max: 20,
+      max: 30,
       initial: this.normalizeExamDurationMinutes(
         this.state.currentExamDurationMinutes
       ),
