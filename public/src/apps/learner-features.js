@@ -13,6 +13,11 @@ export const learnerFeatures = {
     this.setRefreshButtonLoading(true);
 
     try {
+      this.state.modulesByArea = {};
+      this.state.subtopicProgressByArea = {};
+      this.state.quizzesByModule = {};
+      this.state.moduleTypeCountsByModule = {};
+
       const tasks = [this.loadAreaCatalog()];
       if (includePersonalization) {
         tasks.push(this.loadPersonalizationData());
