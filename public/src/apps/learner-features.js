@@ -2869,24 +2869,6 @@ export const learnerFeatures = {
       dashboardSectionCount.textContent = `${displayLevels.length} years total`;
     }
 
-    const cardByLevel = {};
-    displayLevels.forEach((levelRecord, index) => {
-      const card = document.createElement("div");
-      this.renderDashboardLevelCard(
-        card,
-        levelRecord,
-        index,
-        levelRecord.locked
-          ? this.getDefaultLevelProgressSummary(levelRecord)
-          : this.getCachedLevelProgressSummary(levelRecord.name) ||
-              this.getDefaultLevelProgressSummary(levelRecord)
-      );
-      this.dom.areaGrid.appendChild(card);
-      cardByLevel[levelRecord.name] = card;
-    });
-
-    this.showOnly("dashboard-view");
-
     const levelSummaries = await Promise.all(
       displayLevels.map(async (levelRecord) => [
         levelRecord.name,
@@ -2901,15 +2883,17 @@ export const learnerFeatures = {
 
     const levelSummaryByName = Object.fromEntries(levelSummaries);
     displayLevels.forEach((levelRecord, index) => {
-      const card = cardByLevel[levelRecord.name];
-      if (!card) return;
+      const card = document.createElement("div");
       this.renderDashboardLevelCard(
         card,
         levelRecord,
         index,
         levelSummaryByName[levelRecord.name]
       );
+      this.dom.areaGrid.appendChild(card);
     });
+
+    this.showOnly("dashboard-view");
   },
 
   async renderModules() {
@@ -2928,22 +2912,6 @@ export const learnerFeatures = {
     this.dom.moduleGrid.innerHTML = "";
 
     const areaRecords = this.state.areasByLevel[level] || [];
-    const cardByArea = {};
-    areaRecords.forEach((areaRecord, index) => {
-      const card = document.createElement("div");
-      this.renderAreaBrowseCard(
-        card,
-        level,
-        areaRecord,
-        index,
-        this.getCachedAreaProgressSummary(level, areaRecord.name)
-      );
-      this.dom.moduleGrid.appendChild(card);
-      cardByArea[areaRecord.name] = card;
-    });
-
-    this.showOnly("modules-view");
-
     const areaSummaries = await Promise.all(
       areaRecords.map(async (areaRecord) => [
         areaRecord.name,
@@ -2956,8 +2924,7 @@ export const learnerFeatures = {
 
     const areaSummaryByName = Object.fromEntries(areaSummaries);
     areaRecords.forEach((areaRecord, index) => {
-      const card = cardByArea[areaRecord.name];
-      if (!card) return;
+      const card = document.createElement("div");
       this.renderAreaBrowseCard(
         card,
         level,
@@ -2965,7 +2932,10 @@ export const learnerFeatures = {
         index,
         areaSummaryByName[areaRecord.name]
       );
+      this.dom.moduleGrid.appendChild(card);
     });
+
+    this.showOnly("modules-view");
   },
 
   async renderSubtopics() {
@@ -2981,12 +2951,11 @@ export const learnerFeatures = {
     }
 
     const areaCacheKey = this.getAreaCacheKey(currentLevel, currentArea);
-    const modulesWereCached = this.hasAreaModulesCached(
-      currentLevel,
-      currentArea
-    );
+    const everythingCached =
+      this.hasAreaModulesCached(currentLevel, currentArea) &&
+      !!this.state.subtopicProgressByArea[areaCacheKey];
 
-    if (!modulesWereCached) {
+    if (!everythingCached) {
       this.showLoadingView();
     }
 
@@ -3004,7 +2973,43 @@ export const learnerFeatures = {
 
     let progressByModule =
       this.getCachedAreaModuleProgress(currentArea, currentLevel) || {};
-    const hasImmediateProgress = !!Object.keys(progressByModule).length;
+
+    if (!this.state.subtopicProgressByArea[areaCacheKey] && modules.length) {
+      try {
+        const progressEntries = await Promise.all(
+          modules.map(async (moduleRecord) => {
+            const moduleData = await this.ensureModuleQuizzesLoaded(
+              currentArea,
+              moduleRecord.name
+            );
+            return [
+              moduleRecord.name,
+              this.buildModuleAssessmentSummary({
+                moduleData,
+                level: currentLevel,
+                area: currentArea,
+                sub: moduleRecord.name,
+              }),
+            ];
+          })
+        );
+        progressByModule = Object.fromEntries(progressEntries);
+        this.state.subtopicProgressByArea[areaCacheKey] = progressByModule;
+        this.scheduleAppDataCacheWrite();
+      } catch (error) {
+        console.error("Module progress load failed:", error);
+        if (await this.handleAccessRestriction(error)) {
+          return;
+        }
+        this.showToast("Could not load module progress.");
+        return;
+      }
+    }
+
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
+
     document.getElementById("subtopics-page-title").textContent = currentArea;
     document.getElementById("subtopics-page-kicker").textContent = currentLevel;
     document.getElementById("subtopics-page-subtitle").textContent = "";
@@ -3012,7 +3017,6 @@ export const learnerFeatures = {
       `${modules.length} total`;
     this.dom.subtopicsGrid.innerHTML = "";
 
-    const cardByModule = {};
     modules.forEach((moduleRecord, index) => {
       const card = document.createElement("div");
       this.renderSubtopicBrowseCard(
@@ -3028,70 +3032,9 @@ export const learnerFeatures = {
           sub: moduleRecord.name,
         });
       this.dom.subtopicsGrid.appendChild(card);
-      cardByModule[moduleRecord.name] = card;
     });
 
     this.showOnly("subtopics-view");
-
-    if (
-      this.state.subtopicProgressByArea[areaCacheKey] ||
-      hasImmediateProgress ||
-      !modules.length
-    ) {
-      return;
-    }
-
-    try {
-      const progressEntries = await Promise.all(
-        modules.map(async (moduleRecord) => {
-          const moduleData = await this.ensureModuleQuizzesLoaded(
-            currentArea,
-            moduleRecord.name
-          );
-          return [
-            moduleRecord.name,
-            this.buildModuleAssessmentSummary({
-              moduleData,
-              level: currentLevel,
-              area: currentArea,
-              sub: moduleRecord.name,
-            }),
-          ];
-        })
-      );
-
-      progressByModule = Object.fromEntries(progressEntries);
-      this.state.subtopicProgressByArea[areaCacheKey] = progressByModule;
-      this.scheduleAppDataCacheWrite();
-    } catch (error) {
-      console.error("Module progress load failed:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return;
-      }
-      this.showToast("Could not load module progress.");
-      return;
-    }
-
-    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
-      return;
-    }
-
-    modules.forEach((moduleRecord, index) => {
-      const card = cardByModule[moduleRecord.name];
-      if (!card) return;
-      this.renderSubtopicBrowseCard(
-        card,
-        moduleRecord,
-        index,
-        progressByModule[moduleRecord.name]
-      );
-      card.onclick = () =>
-        this.navigate("types", {
-          level: currentLevel,
-          area: currentArea,
-          sub: moduleRecord.name,
-        });
-    });
   },
 
   async renderTypes() {
@@ -4205,6 +4148,8 @@ export const learnerFeatures = {
 
     this.quizSubmissionInFlight = true;
     this.stopQuizCountdown();
+    this.showLoadingView();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     try {
       const formData = new FormData(form);
