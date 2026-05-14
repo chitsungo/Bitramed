@@ -2805,7 +2805,6 @@ export const learnerFeatures = {
 
   async renderDashboard() {
     const routeUrl = `${window.location.pathname}${window.location.search}`;
-    this.dom.areaGrid.innerHTML = "";
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
     const firstName =
       displayName.split(/\s+/).filter(Boolean)[0] || displayName;
@@ -2881,6 +2880,7 @@ export const learnerFeatures = {
       return;
     }
 
+    this.dom.areaGrid.innerHTML = "";
     const levelSummaryByName = Object.fromEntries(levelSummaries);
     displayLevels.forEach((levelRecord, index) => {
       const card = document.createElement("div");
@@ -2904,13 +2904,6 @@ export const learnerFeatures = {
       return;
     }
 
-    document.getElementById("module-page-title").textContent = level;
-    document.getElementById("modules-page-kicker").textContent = level;
-    document.getElementById("module-page-subtitle").textContent = "";
-    document.getElementById("modules-section-count").textContent =
-      `${(this.state.areasByLevel[level] || []).length} total`;
-    this.dom.moduleGrid.innerHTML = "";
-
     const areaRecords = this.state.areasByLevel[level] || [];
     const areaSummaries = await Promise.all(
       areaRecords.map(async (areaRecord) => [
@@ -2921,6 +2914,13 @@ export const learnerFeatures = {
     if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
       return;
     }
+
+    document.getElementById("module-page-title").textContent = level;
+    document.getElementById("modules-page-kicker").textContent = level;
+    document.getElementById("module-page-subtitle").textContent = "";
+    document.getElementById("modules-section-count").textContent =
+      `${areaRecords.length} total`;
+    this.dom.moduleGrid.innerHTML = "";
 
     const areaSummaryByName = Object.fromEntries(areaSummaries);
     areaRecords.forEach((areaRecord, index) => {
