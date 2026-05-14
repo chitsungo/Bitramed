@@ -884,7 +884,7 @@ export function renderLearnerShell() {
 
             <div class="menu-sheet-footer">
               <span class="menu-sheet-brand">Bitramed</span>
-              <span class="menu-sheet-version">v3.0.1</span>
+              <span class="menu-sheet-version">v3.1.0</span>
             </div>
           </section>
         </div>
