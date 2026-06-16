@@ -6,7 +6,7 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3000"
   },
   webServer: {
-    command: "npx serve public -l 3000",
+    command: "node scripts/static-server.mjs 3000 --idle-exit=5000",
     port: 3000,
     reuseExistingServer: true
   }

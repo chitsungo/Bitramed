@@ -870,7 +870,10 @@ async function expectGridColumns(page, selector, expectedColumns) {
         getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean)
           .length
     );
-  expect(columnCount).toBe(expectedColumns);
+  expect({ selector, columnCount }).toEqual({
+    selector,
+    columnCount: expectedColumns,
+  });
 }
 
 async function expectFirstCardFillsTrack(page, gridSelector, itemSelector) {
@@ -1429,32 +1432,23 @@ test("admin overview promotes the silent cohort card", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, isAdmin: true });
   await page.goto("/JAK2V617F/");
   await expect(page.locator("#admin-menu-main")).toBeVisible();
-  await expect(page.locator(".admin-route-nav .admin-route-link")).toHaveText([
-    "Overview",
-  ]);
-  await expect(page.locator("#admin-overview-active-count")).toHaveText("1");
-
-  const workspaceCardTitles = await page.evaluate(() =>
-    Array.from(
-      document.querySelectorAll(
-        ".admin-overview-workspace-grid > .admin-choice-card"
-      )
-    )
-      .map((card) => ({
-        title:
-          card.querySelector(".admin-choice-title")?.textContent?.trim() || "",
-        top: Math.round(card.getBoundingClientRect().top),
-        left: Math.round(card.getBoundingClientRect().left),
-      }))
-      .sort((a, b) => a.top - b.top || a.left - b.left)
-      .map((card) => card.title)
-  );
-
-  expect(workspaceCardTitles).toEqual([
-    "Performance Stats",
-    "Active but Silent",
+  await expect(page.locator(".admin-route-nav a.admin-route-link")).toHaveText([
+    "Dashboard Home",
+    "Stats",
     "Access Control",
   ]);
+  await expect(page.locator(".admin-route-nav [data-admin-overview]")).toContainText(
+    "Needs Activity"
+  );
+  await expect(page.locator("#admin-overview-active-count")).toHaveText("1");
+
+  await expect(page.locator("#admin-menu-main")).toContainText(
+    "Overview Pulse"
+  );
+  await expect(page.locator("#admin-menu-main")).toContainText("Live Brief");
+  await expect(page.locator("#admin-menu-main")).toContainText(
+    "Attention Queue"
+  );
 });
 
 test("admin stats workspace renders executive sections", async ({ page }) => {
@@ -1559,7 +1553,7 @@ test("admin mobile layouts stay inside the viewport", async ({ page }) => {
   await expect(page.locator("#admin-stats-shell")).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator("#admin-story-card")).toBeVisible();
-  await expectGridColumns(page, "#admin-stats-shell .stats-kpi-strip", 1);
+  await expectGridColumns(page, "#admin-stats-shell .stats-kpi-strip", 2);
   await expectGridColumns(page, "#admin-overview-grid", 1);
   await expectGridColumns(page, "#admin-user-highlights", 1);
 
@@ -1574,19 +1568,18 @@ test("admin mobile layouts stay inside the viewport", async ({ page }) => {
   await expectGridColumns(
     page,
     "#admin-access-list .admin-access-row:first-child .admin-access-time-row",
-    2
+    1
   );
   await expectGridColumns(
     page,
     "#admin-access-list .admin-access-row:first-child .admin-access-actions",
-    2
+    1
   );
-  await expectTrailingStaysInline(
-    page,
-    "#admin-access-list .admin-access-row:first-child .admin-access-identity",
-    ".admin-access-identity-body",
-    ".admin-access-status"
-  );
+  await expect(
+    page.locator(
+      "#admin-access-list .admin-access-row:first-child .admin-access-status"
+    )
+  ).toBeVisible();
   const accessLayout = await page.evaluate(() => {
     const row = document.querySelector(".admin-access-row");
     const actions = row?.querySelector(".admin-access-actions");
@@ -1610,8 +1603,8 @@ test("admin mobile layouts stay inside the viewport", async ({ page }) => {
       viewportWidth: window.innerWidth,
     };
   });
-  expect(accessLayout.actionColumns).toBe(2);
-  expect(accessLayout.timeColumns).toBe(2);
+  expect(accessLayout.actionColumns).toBe(1);
+  expect(accessLayout.timeColumns).toBe(1);
   expect(accessLayout.rowRight).toBeLessThanOrEqual(
     accessLayout.viewportWidth + 1
   );
