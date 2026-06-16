@@ -59,6 +59,20 @@ export const learnerCore = {
       results: [],
       activeIndex: -1,
     },
+    pastPapers: {
+      years: [],
+      yearsLoaded: false,
+      topicsByYear: {},
+      examsByTopic: {},
+      unitsBySetId: {},
+      reviewsByAttemptId: {},
+      currentYear: "",
+      currentTopic: "",
+      currentSetId: "",
+      currentAttemptId: "",
+      activeUnits: [],
+      activeExam: null,
+    },
     topbar: {
       menuOpen: false,
       searchOpen: false,
@@ -116,6 +130,7 @@ export const learnerCore = {
     const normalizedView = view === "home" ? "home" : view;
     const titles = {
       home: "Bitramed Home",
+      year: "Bitramed Year",
       modules: "Bitramed Modules",
       subtopics: "Bitramed Subtopics",
       types: "Bitramed Question Types",
@@ -123,6 +138,10 @@ export const learnerCore = {
       setup: "Bitramed Quiz Setup",
       quiz: "Bitramed Quiz",
       results: "Bitramed Results",
+      "past-paper-topics": "Bitramed Past Papers",
+      "past-paper-exams": "Bitramed Past Paper Exams",
+      "past-paper-session": "Bitramed Past Paper",
+      "past-paper-review": "Bitramed Past Paper Result",
       account: "Bitramed Account",
       settings: "Bitramed Settings",
       access: "Bitramed Access",
@@ -190,6 +209,7 @@ export const learnerCore = {
       quizDetailsById: this.state.quizDetailsById,
       attempts: this.state.attempts,
       moduleTypeCountsByModule: this.state.moduleTypeCountsByModule,
+      pastPapers: this.state.pastPapers,
       searchIndexLoaded: this.state.search.indexLoaded,
     };
 
@@ -261,6 +281,13 @@ export const learnerCore = {
         typeof snapshot.moduleTypeCountsByModule === "object"
           ? snapshot.moduleTypeCountsByModule
           : {};
+      this.state.pastPapers =
+        snapshot?.pastPapers && typeof snapshot.pastPapers === "object"
+          ? {
+              ...this.state.pastPapers,
+              ...snapshot.pastPapers,
+            }
+          : this.state.pastPapers;
       this.state.search.indexLoaded = !!snapshot?.searchIndexLoaded;
       this.setAttemptsData(
         Array.isArray(snapshot?.attempts) ? snapshot.attempts : []
@@ -326,8 +353,14 @@ export const learnerCore = {
       accessSectionCount: document.getElementById("access-section-count"),
       accessYearGrid: document.getElementById("access-year-grid"),
       areaGrid: document.getElementById("area-grid"),
+      yearOptionGrid: document.getElementById("year-option-grid"),
       moduleGrid: document.getElementById("module-grid"),
       subtopicsGrid: document.getElementById("subtopics-grid"),
+      pastPaperTopicsGrid: document.getElementById("past-paper-topics-grid"),
+      pastPaperExamsGrid: document.getElementById("past-paper-exams-grid"),
+      pastPaperForm: document.getElementById("past-paper-form"),
+      pastPaperSubmitBtn: document.getElementById("btn-submit-past-paper"),
+      pastPaperReviewList: document.getElementById("past-paper-review-list"),
       typesPageKicker: document.getElementById("types-page-kicker"),
       typesTotalQuestions: document.getElementById("types-total-questions"),
       typesFormatCount: document.getElementById("types-format-count"),
@@ -1465,6 +1498,7 @@ export const learnerCore = {
     this.state.accountSummary = null;
     this.state.quizAttemptSummariesById = {};
     this.state.moduleTypeCountsByModule = {};
+    this.resetPastPaperState?.();
     this.state.search.indexLoaded = false;
     this.state.search.results = [];
     this.state.search.activeIndex = -1;
@@ -1507,7 +1541,11 @@ export const learnerCore = {
     }
 
     this.showLoadingView();
-    await Promise.all([this.loadAreaCatalog(), this.loadPersonalizationData()]);
+    await Promise.all([
+      this.loadAreaCatalog(),
+      this.loadPastPaperYears?.(true),
+      this.loadPersonalizationData(),
+    ]);
     await this.router();
   },
 
@@ -1565,6 +1603,10 @@ export const learnerCore = {
     switch (view) {
       case "home":
         return "/home/";
+      case "year":
+        return `/year/?${new URLSearchParams({
+          year: cleanParams.year || cleanParams.level || "",
+        }).toString()}`;
       case "modules":
         return `/modules/?${new URLSearchParams({
           level: cleanParams.level || "",
@@ -1623,6 +1665,29 @@ export const learnerCore = {
             }).toString()}`
           : "/home/";
       }
+      case "past-paper-topics":
+        return `/past-papers/?${new URLSearchParams({
+          year: cleanParams.year || cleanParams.level || "",
+        }).toString()}`;
+      case "past-paper-exams":
+        return `/past-papers/exams/?${new URLSearchParams({
+          year: cleanParams.year || cleanParams.level || "",
+          topic: cleanParams.topic || cleanParams.area || "",
+        }).toString()}`;
+      case "past-paper-session":
+        return cleanParams.setId
+          ? `/past-papers/session/?${new URLSearchParams({
+              setId: cleanParams.setId,
+              year: cleanParams.year || "",
+              topic: cleanParams.topic || "",
+            }).toString()}`
+          : "/home/";
+      case "past-paper-review":
+        return cleanParams.attemptId
+          ? `/past-papers/review/?${new URLSearchParams({
+              attemptId: cleanParams.attemptId,
+            }).toString()}`
+          : "/home/";
       case "account":
         return "/account/";
       case "settings":
@@ -1702,6 +1767,13 @@ export const learnerCore = {
     this.state.currentExamDurationMinutes = null;
     this.state.quizTimeRemainingSeconds = null;
     this.state.reviewWrongOnly = false;
+    const pastPapers = this.getPastPaperState?.();
+    if (pastPapers) {
+      pastPapers.currentYear = "";
+      pastPapers.currentTopic = "";
+      pastPapers.currentSetId = "";
+      pastPapers.currentAttemptId = "";
+    }
 
     let view = "home";
 
@@ -1712,6 +1784,9 @@ export const learnerCore = {
       root === "app.html"
     ) {
       view = "home";
+    } else if (root === "year") {
+      view = "year";
+      this.state.currentLevel = params.get("year") || "";
     } else if (root === "modules") {
       view = "modules";
       this.state.currentLevel = params.get("level") || "";
@@ -1750,6 +1825,35 @@ export const learnerCore = {
         this.state.mode === "exam"
           ? this.normalizeExamDurationMinutes(params.get("duration"))
           : null;
+    } else if (root === "past-papers") {
+      const [, pastPaperView = "topics"] = segments;
+      if (pastPaperView === "exams") {
+        view = "past-paper-exams";
+        this.state.currentLevel = params.get("year") || "";
+        this.state.currentArea = params.get("topic") || "";
+        if (pastPapers) {
+          pastPapers.currentYear = this.state.currentLevel;
+          pastPapers.currentTopic = this.state.currentArea;
+        }
+      } else if (pastPaperView === "session") {
+        view = "past-paper-session";
+        if (pastPapers) {
+          pastPapers.currentSetId = params.get("setId") || "";
+          pastPapers.currentYear = params.get("year") || "";
+          pastPapers.currentTopic = params.get("topic") || "";
+        }
+      } else if (pastPaperView === "review") {
+        view = "past-paper-review";
+        if (pastPapers) {
+          pastPapers.currentAttemptId = params.get("attemptId") || "";
+        }
+      } else {
+        view = "past-paper-topics";
+        this.state.currentLevel = params.get("year") || "";
+        if (pastPapers) {
+          pastPapers.currentYear = this.state.currentLevel;
+        }
+      }
     } else if (root === "account") {
       view = "account";
     } else if (root === "settings") {
@@ -1778,6 +1882,9 @@ export const learnerCore = {
       case "settings":
         await this.renderSettingsView();
         break;
+      case "year":
+        await this.renderYearHub();
+        break;
       case "modules":
         await this.renderModules();
         break;
@@ -1798,6 +1905,18 @@ export const learnerCore = {
         break;
       case "results":
         this.renderResults();
+        break;
+      case "past-paper-topics":
+        await this.renderPastPaperTopics();
+        break;
+      case "past-paper-exams":
+        await this.renderPastPaperExams();
+        break;
+      case "past-paper-session":
+        await this.renderPastPaperSession();
+        break;
+      case "past-paper-review":
+        await this.renderPastPaperReview();
         break;
       case "home":
       default:

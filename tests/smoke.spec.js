@@ -22,13 +22,6 @@ const learnerCatalogRows = [
     course_id: "course-biochemistry",
     area: "Biochemistry",
   },
-  {
-    level_id: "level-3",
-    level: "Year 3",
-    display_order: 3,
-    course_id: "course-past-papers",
-    area: "Past Papers",
-  },
 ];
 
 const learnerSubtopicsByCourse = {
@@ -56,13 +49,6 @@ const learnerSubtopicsByCourse = {
       course_id: "course-biochemistry",
       subtopic_id: "sub-metabolism",
       subtopic_name: "Metabolism",
-    },
-  ],
-  "Year 3|||Past Papers": [
-    {
-      course_id: "course-past-papers",
-      subtopic_id: "sub-past-haematology",
-      subtopic_name: "Haematology",
     },
   ],
 };
@@ -121,15 +107,6 @@ const learnerQuizCatalogRows = [
     quiz_title: "Metabolism Assessment 1",
     question_type: "sba",
     question_count: 18,
-  },
-  {
-    quiz_id: "quiz-past-tf-1",
-    level: "Year 3",
-    area: "Past Papers",
-    sub: "Haematology",
-    quiz_title: "NUST MBM 3001 Haematology I",
-    question_type: "tf",
-    question_count: 3,
   },
 ];
 
@@ -250,50 +227,6 @@ const learnerQuestionsByQuizId = {
       correct_answer: "B",
       explanation:
         "The sagittal plane divides the body into left and right portions.",
-      image_url: "",
-    },
-  ],
-  "quiz-past-tf-1": [
-    {
-      id: "q-past-tf-1",
-      question_text:
-        "Whole body imaging and bone marrow examination are important in staging lympho-proliferative diseases.",
-      option_a: null,
-      option_b: null,
-      option_c: null,
-      option_d: null,
-      option_e: null,
-      correct_answer: "TRUE",
-      explanation:
-        "Accurate staging needs anatomical mapping and marrow assessment to detect occult infiltration.",
-      image_url: "",
-    },
-    {
-      id: "q-past-tf-2",
-      question_text:
-        "Bone marrow biopsy is never used to assess marrow involvement during lymphoma staging.",
-      option_a: null,
-      option_b: null,
-      option_c: null,
-      option_d: null,
-      option_e: null,
-      correct_answer: "FALSE",
-      explanation:
-        "Bone marrow biopsy remains part of staging when marrow infiltration needs confirmation.",
-      image_url: "",
-    },
-    {
-      id: "q-past-tf-3",
-      question_text:
-        "Disease confined to one side of the diaphragm can still be upstaged by marrow infiltration.",
-      option_a: null,
-      option_b: null,
-      option_c: null,
-      option_d: null,
-      option_e: null,
-      correct_answer: "TRUE",
-      explanation:
-        "Marrow disease changes stage even when nodal disease appears limited anatomically.",
       image_url: "",
     },
   ],
@@ -903,18 +836,6 @@ async function seedLearnerResultSnapshot(page) {
   }, learnerResultSnapshot);
 }
 
-async function seedPastPapersDraft(page, draft) {
-  await page.addInitScript(
-    ({ key, value }) => {
-      window.localStorage.setItem(key, JSON.stringify(value));
-    },
-    {
-      key: "quiz-app:user-1:draft:Year 3|||Past Papers|||Haematology|||tf|||NUST MBM 3001 Haematology I|||study",
-      value: draft,
-    }
-  );
-}
-
 async function expectNoHorizontalOverflow(page) {
   const metrics = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -1480,84 +1401,6 @@ test("learner mobile flow routes render without collapsing layout", async ({
     ".settings-row-label",
     "#settings-signout-btn"
   );
-});
-
-test("past papers quizzes keep Supabase order while other quizzes still shuffle", async ({
-  page,
-}) => {
-  await stubSupabase(page, { signedIn: true, hasAccess: true });
-  await page.addInitScript(() => {
-    Math.random = () => 0;
-  });
-
-  await page.goto("/quiz/?quizId=quiz-tf-1&mode=study");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-view .question-stem")).toHaveText([
-    "The heart is part of the axial skeleton.",
-    "The anatomical position places the body upright.",
-  ]);
-
-  await page.goto("/quiz/?quizId=quiz-past-tf-1&mode=study");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-view .question-stem")).toHaveText([
-    "Whole body imaging and bone marrow examination are important in staging lympho-proliferative diseases.",
-    "Bone marrow biopsy is never used to assess marrow involvement during lymphoma staging.",
-    "Disease confined to one side of the diaphragm can still be upstaged by marrow infiltration.",
-  ]);
-
-  await page.goto("/quiz/?quizId=quiz-past-tf-1&mode=exam&duration=5");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
-  await expect(page.locator("#quiz-view .question-stem")).toHaveText([
-    "Whole body imaging and bone marrow examination are important in staging lympho-proliferative diseases.",
-    "Bone marrow biopsy is never used to assess marrow involvement during lymphoma staging.",
-    "Disease confined to one side of the diaphragm can still be upstaged by marrow infiltration.",
-  ]);
-});
-
-test("past papers draft restore remaps old shuffled answers onto source order", async ({
-  page,
-}) => {
-  await stubSupabase(page, { signedIn: true, hasAccess: true });
-  await page.addInitScript(() => {
-    Math.random = () => 0;
-  });
-  await seedPastPapersDraft(page, {
-    context: {
-      level: "Year 3",
-      area: "Past Papers",
-      sub: "Haematology",
-      type: "tf",
-      title: "NUST MBM 3001 Haematology I",
-      mode: "study",
-      durationMinutes: null,
-    },
-    answers: {
-      q0: "FALSE",
-      q1: "TRUE",
-      q2: "FALSE",
-    },
-    questionOrder: ["id:q-past-tf-3", "id:q-past-tf-1", "id:q-past-tf-2"],
-    savedAt: "2026-04-01T08:00:00.000Z",
-  });
-
-  await page.goto("/quiz/?quizId=quiz-past-tf-1&mode=study");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-view .question-stem")).toHaveText([
-    "Whole body imaging and bone marrow examination are important in staging lympho-proliferative diseases.",
-    "Bone marrow biopsy is never used to assess marrow involvement during lymphoma staging.",
-    "Disease confined to one side of the diaphragm can still be upstaged by marrow infiltration.",
-  ]);
-
-  const checkedValues = await page.evaluate(() =>
-    Array.from(
-      document.querySelectorAll("#quiz-view .question-card"),
-      (_, index) =>
-        document.querySelector(`#quiz-view input[name="q${index}"]:checked`)
-          ?.value || null
-    )
-  );
-  expect(checkedValues).toEqual(["TRUE", "FALSE", "FALSE"]);
 });
 
 test("learner mobile access gate fits the viewport", async ({ page }) => {

@@ -1,6 +1,7 @@
 import { learnerCore } from "../apps/learner-core.js";
 import { learnerFeatures } from "../apps/learner-features.js";
 import { learnerSearch } from "../apps/learner-search.js";
+import { pastPaperApp } from "../features/past-papers/past-paper-app.js";
 import { renderLearnerShell } from "../views/learner-layout.js";
 
 function createInitialState() {
@@ -12,6 +13,7 @@ function createLearnerApp() {
     ...learnerCore,
     ...learnerFeatures,
     ...learnerSearch,
+    ...pastPaperApp,
     state: createInitialState()
   };
 }

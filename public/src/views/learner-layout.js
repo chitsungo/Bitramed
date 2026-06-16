@@ -6,6 +6,7 @@ export function renderLearnerShell() {
 
   const pageTitles = {
     home: "Bitramed Home",
+    year: "Bitramed Year",
     modules: "Bitramed Modules",
     subtopics: "Bitramed Subtopics",
     types: "Bitramed Question Types",
@@ -13,6 +14,10 @@ export function renderLearnerShell() {
     setup: "Bitramed Quiz Setup",
     quiz: "Bitramed Quiz",
     results: "Bitramed Results",
+    "past-paper-topics": "Bitramed Past Papers",
+    "past-paper-exams": "Bitramed Past Paper Exams",
+    "past-paper-session": "Bitramed Past Paper",
+    "past-paper-review": "Bitramed Past Paper Result",
     account: "Bitramed Account",
     settings: "Bitramed Settings",
     access: "Bitramed Access",
@@ -54,6 +59,23 @@ export function renderLearnerShell() {
         <div id="area-grid" class="browse-card-list"></div>
       </section>
     `,
+    year: `
+      <section id="year-view" class="view browse-view" hidden>
+        <div class="browse-header">
+          <div class="browse-eyebrow">
+            <span class="browse-eyebrow-line"></span>
+            <span id="year-page-kicker" class="browse-eyebrow-text">Year</span>
+          </div>
+          <h2 id="year-page-title" class="browse-page-title">Year</h2>
+          <p id="year-page-subtitle" class="browse-page-subtitle"></p>
+        </div>
+        <div class="browse-section-label">
+          <span class="browse-section-title">Choose Path</span>
+          <span id="year-section-count" class="browse-section-count">0 options</span>
+        </div>
+        <div id="year-option-grid" class="browse-card-list"></div>
+      </section>
+    `,
     modules: `
       <section id="modules-view" class="view browse-view" hidden>
         <div class="browse-header">
@@ -69,6 +91,150 @@ export function renderLearnerShell() {
           <span id="modules-section-count" class="browse-section-count">0 total</span>
         </div>
         <div id="module-grid" class="browse-card-list"></div>
+      </section>
+    `,
+    pastPaperTopics: `
+      <section id="past-paper-topics-view" class="view browse-view past-paper-view" hidden>
+        <div class="browse-header">
+          <div class="browse-eyebrow">
+            <span class="browse-eyebrow-line"></span>
+            <span id="past-paper-topics-kicker" class="browse-eyebrow-text">Year</span>
+          </div>
+          <h2 id="past-paper-topics-title" class="browse-page-title">Past Papers</h2>
+          <p id="past-paper-topics-subtitle" class="browse-page-subtitle"></p>
+        </div>
+        <div class="browse-section-label">
+          <span class="browse-section-title">Topics</span>
+          <span id="past-paper-topics-count" class="browse-section-count">0 topics</span>
+        </div>
+        <div id="past-paper-topics-grid" class="browse-card-list"></div>
+      </section>
+    `,
+    pastPaperExams: `
+      <section id="past-paper-exams-view" class="view quizlist-view past-paper-view" hidden>
+        <div class="quizlist-shell">
+          <div class="quizlist-header">
+            <div class="quizlist-header-copy">
+              <div class="quizlist-eyebrow">
+                <span class="quizlist-eyebrow-line"></span>
+                <span id="past-paper-exams-kicker" class="quizlist-eyebrow-text">Past Papers</span>
+                <span class="quizlist-eyebrow-line"></span>
+              </div>
+              <h2 id="past-paper-exams-title" class="quizlist-title">Topic</h2>
+              <div class="quizlist-mode-badge">Full Exams</div>
+            </div>
+          </div>
+          <p id="past-paper-exams-subtitle" class="browse-page-subtitle"></p>
+          <div class="quizlist-section-label">
+            <span class="quizlist-section-title">Exam Papers</span>
+            <span id="past-paper-exams-count" class="quizlist-section-count">0 exams</span>
+          </div>
+          <div id="past-paper-exams-grid" class="quizlist-cards"></div>
+        </div>
+      </section>
+    `,
+    pastPaperSession: `
+      <section id="past-paper-session-view" class="view quiz-session-view past-paper-session-view" hidden>
+        <div class="quiz-session-page">
+          <div class="quiz-session-header">
+            <div id="past-paper-mode-badge" class="quiz-session-mode-badge">Past Paper</div>
+            <div class="quiz-session-assessment-label">
+              <span id="past-paper-page-kicker" class="quiz-session-assessment-text">Year / Topic</span>
+            </div>
+            <h2 id="past-paper-page-title" class="quiz-session-title">Past Paper</h2>
+            <p id="past-paper-page-meta" class="quiz-session-subtitle"></p>
+          </div>
+
+          <div class="quiz-session-stats">
+            <div class="quiz-session-stat-cell">
+              <div id="past-paper-total-count" class="quiz-session-stat-value">0</div>
+              <div class="quiz-session-stat-key">Marks</div>
+            </div>
+            <div class="quiz-session-stat-cell">
+              <div id="past-paper-answered-count" class="quiz-session-stat-value">0</div>
+              <div class="quiz-session-stat-key">Answered</div>
+            </div>
+            <div class="quiz-session-stat-cell">
+              <div id="past-paper-unit-count" class="quiz-session-stat-value">0</div>
+              <div class="quiz-session-stat-key">Stems</div>
+            </div>
+          </div>
+
+          <div class="quiz-progress-wrap">
+            <div class="quiz-progress-meta">
+              <span class="quiz-progress-label">Progress</span>
+              <span id="past-paper-progress-count" class="quiz-progress-count">0 / 0</span>
+            </div>
+            <div class="quiz-progress-track">
+              <div id="past-paper-progress-fill" class="quiz-progress-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <form id="past-paper-form" class="quiz-session-form past-paper-form"></form>
+        </div>
+
+        <div class="quiz-submit-bar">
+          <div class="quiz-submit-inner">
+            <button id="btn-submit-past-paper" class="quiz-submit-btn" type="button" disabled>
+              <span id="past-paper-progress-copy" class="quiz-submit-progress">0/0 answered</span>
+              <span class="quiz-submit-btn-label">Submit Past Paper</span>
+              <span class="quiz-submit-btn-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 12h12"></path>
+                  <path d="M13 6l6 6-6 6"></path>
+                </svg>
+              </span>
+            </button>
+          </div>
+        </div>
+      </section>
+    `,
+    pastPaperReview: `
+      <section id="past-paper-review-view" class="view results-page-view past-paper-review-view" hidden>
+        <div class="results-page-shell">
+          <div class="results-page-header">
+            <div class="results-page-eyebrow">
+              <span class="results-page-eyebrow-line"></span>
+              <span id="past-paper-review-kicker" class="results-page-eyebrow-text">Attempt result</span>
+            </div>
+            <h2 id="past-paper-review-title" class="results-page-title">Past Paper Result</h2>
+          </div>
+
+          <div class="results-score-hero">
+            <div class="results-score-top">
+              <div class="results-score-main">
+                <div id="past-paper-review-score" class="results-score-fraction">0/0</div>
+                <div class="results-score-label">Score</div>
+              </div>
+              <div class="results-score-pct-block">
+                <div id="past-paper-review-percent" class="results-score-pct poor">0%</div>
+                <div class="results-score-pct-label">Percentage</div>
+              </div>
+            </div>
+
+            <div class="results-score-breakdown">
+              <div class="results-breakdown-cell">
+                <div id="past-paper-review-correct" class="results-breakdown-value correct">0</div>
+                <div class="results-breakdown-label">Correct</div>
+              </div>
+              <div class="results-breakdown-cell">
+                <div id="past-paper-review-wrong" class="results-breakdown-value wrong">0</div>
+                <div class="results-breakdown-label">Wrong</div>
+              </div>
+              <div class="results-breakdown-cell">
+                <div id="past-paper-review-unanswered" class="results-breakdown-value unsure">0</div>
+                <div class="results-breakdown-label">Unanswered</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="results-section-header">
+            <span class="results-section-title">Stem Review</span>
+            <span id="past-paper-review-count" class="results-section-count">0 stems</span>
+          </div>
+
+          <div id="past-paper-review-list" class="results-review-list"></div>
+        </div>
       </section>
     `,
     subtopics: `
@@ -631,7 +797,12 @@ export function renderLearnerShell() {
 
   const orderedViews = [
     viewTemplates.dashboard,
+    viewTemplates.year,
     viewTemplates.modules,
+    viewTemplates.pastPaperTopics,
+    viewTemplates.pastPaperExams,
+    viewTemplates.pastPaperSession,
+    viewTemplates.pastPaperReview,
     viewTemplates.subtopics,
     viewTemplates.types,
     viewTemplates.quizzes,

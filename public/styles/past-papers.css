@@ -1,0 +1,94 @@
+.past-paper-view .browse-page-subtitle,
+.past-paper-view .quizlist-shell > .browse-page-subtitle {
+  margin-top: 0;
+}
+
+.past-paper-session-view .quiz-session-mode-badge {
+  background: rgba(16, 105, 92, 0.12);
+  color: #10695c;
+}
+
+.past-paper-unit-card .question-stem {
+  margin-bottom: 18px;
+}
+
+.past-paper-branches {
+  display: grid;
+  gap: 12px;
+}
+
+.past-paper-branch {
+  border: 1px solid rgba(91, 78, 63, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 12px;
+}
+
+.past-paper-branch-prompt {
+  margin: 0 0 10px;
+  color: var(--text, #1f2933);
+  font-size: 0.97rem;
+  line-height: 1.5;
+}
+
+.past-paper-branch-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.past-paper-review-unit .review-stem {
+  margin-bottom: 16px;
+}
+
+.past-paper-review-branches {
+  display: grid;
+  gap: 12px;
+}
+
+.past-paper-review-branch {
+  border: 1px solid rgba(91, 78, 63, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.past-paper-review-branch.is-correct {
+  border-color: rgba(42, 148, 106, 0.24);
+}
+
+.past-paper-review-branch.is-wrong {
+  border-color: rgba(194, 75, 75, 0.24);
+}
+
+.past-paper-review-branch-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--muted, #667085);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.past-paper-review-branch p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+body.dark-mode .past-paper-session-view .quiz-session-mode-badge {
+  background: rgba(148, 231, 219, 0.14);
+  color: #94e7db;
+}
+
+body.dark-mode .past-paper-branch,
+body.dark-mode .past-paper-review-branch {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+@media (max-width: 620px) {
+  .past-paper-branch-options {
+    grid-template-columns: 1fr;
+  }
+}

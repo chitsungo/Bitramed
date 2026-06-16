@@ -18,7 +18,7 @@ export const learnerFeatures = {
       this.state.quizzesByModule = {};
       this.state.moduleTypeCountsByModule = {};
 
-      const tasks = [this.loadAreaCatalog()];
+      const tasks = [this.loadAreaCatalog(), this.loadPastPaperYears?.(true)];
       if (includePersonalization) {
         tasks.push(this.loadPersonalizationData());
       }
@@ -1666,10 +1666,6 @@ export const learnerFeatures = {
       .toLowerCase();
   },
 
-  isPastPapersArea(area = this.state.currentArea) {
-    return this.normalizeText(area) === "past papers";
-  },
-
   normalizeTfAnswer(value) {
     const raw = this.normalizeText(value);
     if (!raw) return "";
@@ -1727,10 +1723,6 @@ export const learnerFeatures = {
       return questions;
     }
 
-    if (this.isPastPapersArea()) {
-      return questions;
-    }
-
     const savedOrder = Array.isArray(savedDraft?.questionOrder)
       ? savedDraft.questionOrder
       : null;
@@ -1750,63 +1742,6 @@ export const learnerFeatures = {
     }
 
     return this.shuffleArray(questions);
-  },
-
-  remapDraftAnswersToQuestionOrder(savedDraft, questions) {
-    if (
-      !savedDraft?.answers ||
-      !Array.isArray(questions) ||
-      !questions.length
-    ) {
-      return savedDraft;
-    }
-
-    const savedOrder = Array.isArray(savedDraft.questionOrder)
-      ? savedDraft.questionOrder
-      : null;
-    if (!savedOrder?.some((key) => typeof key === "string" && key.trim())) {
-      return savedDraft;
-    }
-
-    const questionIndexesByKey = new Map(
-      questions.map((question, index) => [question?.key, index])
-    );
-    const remappedAnswers = {};
-
-    savedOrder.forEach((key, savedIndex) => {
-      if (typeof key !== "string" || !key.trim()) {
-        return;
-      }
-
-      const savedFieldName = this.buildQuestionFieldName(savedIndex);
-      if (
-        !Object.prototype.hasOwnProperty.call(
-          savedDraft.answers,
-          savedFieldName
-        )
-      ) {
-        return;
-      }
-
-      const nextIndex = questionIndexesByKey.get(key);
-      if (!Number.isInteger(nextIndex)) {
-        return;
-      }
-
-      remappedAnswers[this.buildQuestionFieldName(nextIndex)] =
-        savedDraft.answers[savedFieldName];
-    });
-
-    return {
-      ...savedDraft,
-      answers: remappedAnswers,
-    };
-  },
-
-  getQuizDraftForRestore(savedDraft, questions) {
-    if (!savedDraft?.answers) return savedDraft;
-    if (!this.isPastPapersArea()) return savedDraft;
-    return this.remapDraftAnswersToQuestionOrder(savedDraft, questions);
   },
 
   normalizeSbaAnswer(answerValue, options) {
@@ -2060,6 +1995,18 @@ export const learnerFeatures = {
     const existingLevelsByName = Object.fromEntries(
       this.state.levelList.map((levelRecord) => [levelRecord.name, levelRecord])
     );
+    const pastPaperLevelsByName = Object.fromEntries(
+      (this.state.pastPapers?.years || []).map((row) => [
+        row.yearLabel,
+        {
+          id: "",
+          name: row.yearLabel,
+          displayOrder: 0,
+          locked: false,
+          pastPaperOnly: !existingLevelsByName[row.yearLabel],
+        },
+      ])
+    );
     const highestExistingYear = this.state.levelList.reduce(
       (maxYear, levelRecord) => {
         const levelNumber = Number(
@@ -2069,15 +2016,27 @@ export const learnerFeatures = {
       },
       0
     );
+    const highestPastPaperYear = (this.state.pastPapers?.years || []).reduce(
+      (maxYear, yearRecord) => {
+        const levelNumber = Number(
+          String(yearRecord.yearLabel).match(/\d+/)?.[0] || 0
+        );
+        return Math.max(maxYear, levelNumber);
+      },
+      0
+    );
     const dashboardYearCount = Math.max(
       5,
-      highestExistingYear || this.state.levelList.length || 0
+      highestExistingYear,
+      highestPastPaperYear,
+      this.state.levelList.length || 0
     );
 
     return Array.from({ length: dashboardYearCount }, (_, index) => {
       const name = `Year ${index + 1}`;
       return (
-        existingLevelsByName[name] || {
+        existingLevelsByName[name] ||
+        pastPaperLevelsByName[name] || {
           id: "",
           name,
           displayOrder: index + 1,
@@ -2099,6 +2058,7 @@ export const learnerFeatures = {
   renderDashboardLevelCard(card, levelRecord, index, summaryOverride = null) {
     const level = levelRecord.name;
     const isLocked = !!levelRecord.locked;
+    const pastPaperSummary = this.getPastPaperYearSummary?.(level);
     const levelSummary =
       summaryOverride || this.getDefaultLevelProgressSummary(levelRecord);
     const isComplete =
@@ -2130,7 +2090,9 @@ export const learnerFeatures = {
       metaKind: isLocked ? "" : "book",
       metaLabel: isLocked
         ? ""
-        : `${levelSummary.courseCount} course${levelSummary.courseCount === 1 ? "" : "s"}`,
+        : pastPaperSummary && !levelSummary.courseCount
+          ? `${pastPaperSummary.examCount} past paper${pastPaperSummary.examCount === 1 ? "" : "s"}`
+          : `${levelSummary.courseCount} course${levelSummary.courseCount === 1 ? "" : "s"}`,
       progressPercent: isLocked ? 0 : levelSummary.percent,
       progressLabel: isLocked
         ? ""
@@ -2152,7 +2114,7 @@ export const learnerFeatures = {
       lockedLabel: "Available soon",
     });
 
-    card.onclick = isLocked ? null : () => this.navigate("modules", { level });
+    card.onclick = isLocked ? null : () => this.navigate("year", { year: level });
   },
 
   renderAreaBrowseCard(card, level, areaRecord, index, summaryOverride = null) {
@@ -2805,6 +2767,14 @@ export const learnerFeatures = {
 
   async renderDashboard() {
     const routeUrl = `${window.location.pathname}${window.location.search}`;
+    try {
+      await this.loadPastPaperYears?.();
+    } catch (error) {
+      console.error("Past paper year load failed:", error);
+      if (await this.handleAccessRestriction(error)) {
+        return;
+      }
+    }
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
     const firstName =
       displayName.split(/\s+/).filter(Boolean)[0] || displayName;
@@ -3497,7 +3467,7 @@ export const learnerFeatures = {
     const baseQuestions = await this.fetchQuestionsForCurrentQuiz();
     const savedDraft = this.loadSavedQuizDraft();
     const questions = this.getQuizSessionQuestions(baseQuestions, savedDraft);
-    const restoreDraft = this.getQuizDraftForRestore(savedDraft, questions);
+    const restoreDraft = savedDraft;
 
     if (!questions.length) {
       this.navigate("setup", {
