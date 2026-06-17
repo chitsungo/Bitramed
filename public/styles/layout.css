@@ -15,6 +15,72 @@
 
 .view {
   min-width: 0;
+  opacity: 1;
+}
+
+.view.view-entering,
+.loading-view.view-entering {
+  opacity: 0;
+  transform: translateY(0.625rem);
+  will-change: opacity, transform;
+}
+
+.view.view-entering.view-active,
+.loading-view.view-entering.view-active {
+  opacity: 1;
+  transform: none;
+}
+
+.view.view-active,
+.loading-view.view-active {
+  opacity: 1;
+}
+
+.view.view-exiting,
+.loading-view.view-exiting {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  pointer-events: none;
+  will-change: opacity, transform;
+}
+
+.view.view-entering,
+.view.view-exiting,
+.loading-view.view-entering,
+.loading-view.view-exiting {
+  transition:
+    opacity 210ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 210ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body.route-transitioning .main-wrap,
+body.route-navigation-pending .main-wrap {
+  pointer-events: none;
+}
+
+.browse-card-button.is-route-pressed .browse-card,
+.selection-card.is-route-pressed,
+.quizlist-card.is-route-pressed,
+.setup-mode-card.is-route-pressed {
+  opacity: 0.82;
+  transform: translateY(1px) scale(0.99) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view.view-entering,
+  .loading-view.view-entering,
+  .view.view-exiting,
+  .loading-view.view-exiting {
+    transform: none;
+    transition-duration: 1ms;
+  }
+
+  .browse-card-button.is-route-pressed .browse-card,
+  .selection-card.is-route-pressed,
+  .quizlist-card.is-route-pressed,
+  .setup-mode-card.is-route-pressed {
+    transform: none !important;
+  }
 }
 
 .panel,

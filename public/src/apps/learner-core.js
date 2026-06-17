@@ -16,6 +16,13 @@ export const learnerCore = {
   quizCountdownInterval: null,
   quizCountdownDeadline: 0,
   quizSubmissionInFlight: false,
+  routeNavigationInFlight: false,
+  routeTransitionDurationMs: 210,
+  routeLoadingDelayMs: 160,
+  routeTransitionSequence: 0,
+  routeTransitionPromise: Promise.resolve(),
+  pendingLoadingTimer: null,
+  pendingLoadingResolve: null,
   appDataCacheWriteTimer: null,
   restoringAppDataCache: false,
   appDataCacheVersion: 2,
@@ -89,6 +96,7 @@ export const learnerCore = {
       this.bindTopbarEngine();
       this.startMenuSessionClock();
       this.bindAppEvents();
+      this.bindRoutePressFeedback();
       window.addEventListener("popstate", () => {
         void this.router();
       });
@@ -148,7 +156,7 @@ export const learnerCore = {
     };
 
     return {
-      bodyPage: normalizedView,
+      bodyPage: normalizedView === "past-paper-review" ? "results" : normalizedView,
       title: titles[normalizedView] || "Bitramed",
     };
   },
@@ -1217,6 +1225,26 @@ export const learnerCore = {
     element.onclick = handler;
   },
 
+  bindRoutePressFeedback() {
+    document.addEventListener(
+      "click",
+      (event) => {
+        const trigger = event.target.closest?.(
+          ".browse-card-button, .selection-card, .quizlist-card, .setup-mode-card"
+        );
+        if (!trigger || trigger.disabled || trigger.classList.contains("is-static")) {
+          return;
+        }
+
+        trigger.classList.add("is-route-pressed");
+        window.setTimeout(() => {
+          trigger.classList.remove("is-route-pressed");
+        }, 260);
+      },
+      true
+    );
+  },
+
   bindAppEvents() {
     this.bindOptionalClick("btn-start-study", () =>
       this.navigate("quiz", {
@@ -1724,6 +1752,10 @@ export const learnerCore = {
   },
 
   async navigate(view, params = {}, options = {}) {
+    if (this.routeNavigationInFlight && !options.replace) {
+      return;
+    }
+
     const path = this.buildPath(view, params);
     if (!path) return;
 
@@ -1733,13 +1765,22 @@ export const learnerCore = {
       return;
     }
 
-    if (options.replace) {
-      window.history.replaceState({}, "", path);
-    } else {
-      window.history.pushState({}, "", path);
-    }
+    this.routeNavigationInFlight = true;
+    document.body.classList.add("route-navigation-pending");
 
-    await this.router();
+    try {
+      if (options.replace) {
+        window.history.replaceState({}, "", path);
+      } else {
+        window.history.pushState({}, "", path);
+      }
+
+      await this.router();
+      await this.waitForRouteTransition();
+    } finally {
+      this.routeNavigationInFlight = false;
+      document.body.classList.remove("route-navigation-pending");
+    }
   },
 
   async router() {
@@ -1925,7 +1966,106 @@ export const learnerCore = {
     }
 
     this.renderMenuSheetContext();
-    window.scrollTo(0, 0);
+    await this.waitForRouteTransition();
+  },
+
+  getRouteViews() {
+    return Array.from(document.querySelectorAll(".view, #loading-view"));
+  },
+
+  getActiveRouteView() {
+    return this.getRouteViews().find((el) => !el.hidden) || null;
+  },
+
+  prefersReducedRouteMotion() {
+    return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  },
+
+  getRouteTransitionDuration() {
+    return this.prefersReducedRouteMotion() ? 1 : this.routeTransitionDurationMs;
+  },
+
+  wait(ms) {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+  },
+
+  nextRouteFrame() {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(resolve);
+      });
+    });
+  },
+
+  scrollToRouteTop() {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  },
+
+  cancelPendingLoadingReveal() {
+    if (this.pendingLoadingTimer) {
+      window.clearTimeout(this.pendingLoadingTimer);
+      this.pendingLoadingTimer = null;
+    }
+    if (this.pendingLoadingResolve) {
+      this.pendingLoadingResolve();
+      this.pendingLoadingResolve = null;
+    }
+  },
+
+  cleanupRouteViewClasses(element) {
+    if (!element) return;
+    element.classList.remove("view-entering", "view-active", "view-exiting");
+  },
+
+  async revealRouteView(idToShow, sequence) {
+    const target = document.getElementById(idToShow);
+    if (!target) return;
+
+    const allViews = this.getRouteViews();
+    const current = this.getActiveRouteView();
+    const duration = this.getRouteTransitionDuration();
+
+    document.body.classList.add("route-transitioning");
+
+    if (current && current !== target) {
+      current.setAttribute("aria-hidden", "true");
+      current.classList.remove("view-entering");
+      current.classList.add("view-active", "view-exiting");
+      await this.wait(duration);
+      if (sequence !== this.routeTransitionSequence) return;
+      current.hidden = true;
+      this.cleanupRouteViewClasses(current);
+    }
+
+    if (idToShow !== "loading-view") {
+      this.scrollToRouteTop();
+    }
+
+    allViews.forEach((view) => {
+      if (view === target) return;
+      view.hidden = true;
+      view.setAttribute("aria-hidden", "true");
+      this.cleanupRouteViewClasses(view);
+    });
+
+    target.hidden = false;
+    target.setAttribute("aria-hidden", "false");
+    target.classList.remove("view-exiting", "view-active");
+    target.classList.add("view-entering");
+    await this.nextRouteFrame();
+    if (sequence !== this.routeTransitionSequence) return;
+    target.classList.add("view-active");
+    await this.wait(duration);
+    if (sequence !== this.routeTransitionSequence) return;
+    target.classList.remove("view-entering");
+    target.classList.add("view-active");
+    document.body.classList.remove("route-transitioning");
+  },
+
+  waitForRouteTransition() {
+    return this.routeTransitionPromise || Promise.resolve();
   },
 
   showOnly(idToShow) {
@@ -1933,12 +2073,33 @@ export const learnerCore = {
       this.stopSettingsCountdown();
     }
 
-    document.querySelectorAll(".view, #loading-view").forEach((el) => {
-      el.hidden = true;
-    });
-
     const target = document.getElementById(idToShow);
-    if (target) target.hidden = false;
+    if (!target) return Promise.resolve();
+
+    const current = this.getActiveRouteView();
+    if (current === target && !target.hidden) {
+      target.classList.add("view-active");
+      this.routeTransitionPromise = Promise.resolve();
+      return this.routeTransitionPromise;
+    }
+
+    const sequence = ++this.routeTransitionSequence;
+    this.cancelPendingLoadingReveal();
+
+    if (idToShow === "loading-view" && current && !current.hidden) {
+      this.routeTransitionPromise = new Promise((resolve) => {
+        this.pendingLoadingResolve = resolve;
+        this.pendingLoadingTimer = window.setTimeout(() => {
+          this.pendingLoadingTimer = null;
+          this.pendingLoadingResolve = null;
+          this.revealRouteView(idToShow, sequence).then(resolve);
+        }, this.routeLoadingDelayMs);
+      });
+      return this.routeTransitionPromise;
+    }
+
+    this.routeTransitionPromise = this.revealRouteView(idToShow, sequence);
+    return this.routeTransitionPromise;
   },
 
   renderAccessGate(statusOverride = null) {

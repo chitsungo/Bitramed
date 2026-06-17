@@ -6,6 +6,7 @@ import {
   fetchPastPaperYears,
   submitPastPaperAttempt,
 } from "../../services/past-paper-service.js";
+import { confirmDialog } from "../../ui/dialog.js";
 
 const PAST_PAPER_GROUP = "Past Papers";
 
@@ -14,7 +15,11 @@ function normalizeText(value) {
 }
 
 function boolToAnswer(value) {
-  return value === true ? "True" : value === false ? "False" : "Unanswered";
+  return value === true
+    ? "True"
+    : value === false
+      ? "False"
+      : "Not sure";
 }
 
 export const pastPaperApp = {
@@ -115,14 +120,37 @@ export const pastPaperApp = {
 
   normalizePastPaperUnitRows(rows) {
     return (rows || [])
-      .map((row) => ({
-        unitId: row.unit_id,
-        stem: normalizeText(row.stem),
-        imageUrl: normalizeText(row.image_url),
-        displayOrder: Number(row.display_order || 0),
-        branches: Array.isArray(row.branches) ? row.branches : [],
-      }))
-      .filter((row) => row.unitId && row.stem && row.branches.length === 5)
+      .map((row) => {
+        const branches = (Array.isArray(row.branches) ? row.branches : [])
+          .map((branch) => ({
+            ...branch,
+            order: Number(branch?.order || 0),
+            prompt: normalizeText(branch?.prompt),
+            imageUrl: normalizeText(branch?.imageUrl),
+          }))
+          .filter(
+            (branch) =>
+              branch.branchId &&
+              branch.prompt &&
+              branch.order >= 1 &&
+              branch.order <= 5
+          )
+          .sort((a, b) => a.order - b.order);
+        return {
+          unitId: row.unit_id,
+          stem: normalizeText(row.stem),
+          imageUrl: normalizeText(row.image_url),
+          displayOrder: Number(row.display_order || 0),
+          branches,
+        };
+      })
+      .filter(
+        (row) =>
+          row.unitId &&
+          row.stem &&
+          row.branches.length >= 1 &&
+          row.branches.length <= 5
+      )
       .sort((a, b) => {
         if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
         return String(a.unitId).localeCompare(String(b.unitId));
@@ -223,6 +251,7 @@ export const pastPaperApp = {
     metricValue = "",
     metricLabel = "",
     progressPercent = 0,
+    progressLabel = "",
     index = 0,
   }) {
     return this.buildBrowseCardMarkup({
@@ -235,10 +264,17 @@ export const pastPaperApp = {
       metaKind: "book",
       metaLabel,
       progressPercent,
-      progressLabel: progressPercent ? `${progressPercent}% best` : "",
+      progressLabel,
       metricValue,
       metricLabel,
     });
+  },
+
+  getPastPaperCompletionPercent(summary) {
+    const examCount = Number(summary?.examCount || 0);
+    const attemptCount = Number(summary?.attemptCount || 0);
+    if (!examCount) return 0;
+    return Math.min(100, Math.round((attemptCount / examCount) * 100));
   },
 
   async renderYearHub() {
@@ -248,6 +284,7 @@ export const pastPaperApp = {
       return;
     }
 
+    this.showLoadingView();
     await this.loadPastPaperYears();
     const normalAvailable = !!this.state.levelIdByName[yearLabel];
     const pastPaperSummary = this.getPastPaperYearSummary(yearLabel);
@@ -255,11 +292,15 @@ export const pastPaperApp = {
       await this.navigate("home", {}, { replace: true });
       return;
     }
+    const normalSummary = normalAvailable
+      ? await this.getLevelProgressSummary(yearLabel)
+      : null;
+    const normalProgressPercent = Number(normalSummary?.percent || 0);
+    const pastPaperProgressPercent = this.getPastPaperCompletionPercent(pastPaperSummary);
 
     document.getElementById("year-page-title").textContent = yearLabel;
     document.getElementById("year-page-kicker").textContent = "Year";
-    document.getElementById("year-page-subtitle").textContent =
-      "Choose the normal study path or full past paper exams.";
+    document.getElementById("year-page-subtitle").textContent = "";
 
     const options = [];
     if (normalAvailable) {
@@ -271,7 +312,12 @@ export const pastPaperApp = {
         metricLabel: "",
         statusLabel: "Courses",
         statusClass: "status-active",
-        onClick: () => this.navigate("modules", { level: yearLabel }),
+        progressPercent: normalProgressPercent,
+        progressLabel: `${normalProgressPercent}% done`,
+        onClick: () => {
+          this.showLoadingView();
+          this.navigate("modules", { level: yearLabel });
+        },
       });
     }
     if (pastPaperSummary) {
@@ -283,7 +329,8 @@ export const pastPaperApp = {
         metricLabel: pastPaperSummary.examCount === 1 ? "exam" : "exams",
         statusLabel: pastPaperSummary.attemptCount ? "Active" : "New",
         statusClass: pastPaperSummary.attemptCount ? "status-active" : "status-fresh",
-        progressPercent: pastPaperSummary.bestPercentage,
+        progressPercent: pastPaperProgressPercent,
+        progressLabel: `${pastPaperProgressPercent}% done`,
         onClick: () => this.navigate("past-paper-topics", { year: yearLabel }),
       });
     }
@@ -326,13 +373,13 @@ export const pastPaperApp = {
 
     document.getElementById("past-paper-topics-title").textContent = PAST_PAPER_GROUP;
     document.getElementById("past-paper-topics-kicker").textContent = yearLabel;
-    document.getElementById("past-paper-topics-subtitle").textContent =
-      "Select a topic to see available full exams.";
+    document.getElementById("past-paper-topics-subtitle").textContent = "";
     document.getElementById("past-paper-topics-count").textContent =
       `${topics.length} topic${topics.length === 1 ? "" : "s"}`;
     this.dom.pastPaperTopicsGrid.innerHTML = "";
 
     topics.forEach((topic, index) => {
+      const topicProgressPercent = this.getPastPaperCompletionPercent(topic);
       const card = document.createElement("button");
       card.type = "button";
       card.className = "browse-card-button";
@@ -344,7 +391,8 @@ export const pastPaperApp = {
         metaLabel: `${topic.examCount} exam${topic.examCount === 1 ? "" : "s"}`,
         metricValue: String(topic.totalMarks),
         metricLabel: "marks",
-        progressPercent: topic.bestPercentage,
+        progressPercent: topicProgressPercent,
+        progressLabel: `${topicProgressPercent}% done`,
         index,
       });
       card.onclick = () =>
@@ -383,8 +431,7 @@ export const pastPaperApp = {
     document.getElementById("past-paper-exams-title").textContent = topicLabel;
     document.getElementById("past-paper-exams-kicker").textContent =
       `${yearLabel} / ${PAST_PAPER_GROUP}`;
-    document.getElementById("past-paper-exams-subtitle").textContent =
-      "Choose an exam paper to start.";
+    document.getElementById("past-paper-exams-subtitle").textContent = "";
     document.getElementById("past-paper-exams-count").textContent =
       `${exams.length} exam${exams.length === 1 ? "" : "s"}`;
     this.dom.pastPaperExamsGrid.innerHTML = "";
@@ -402,7 +449,7 @@ export const pastPaperApp = {
             </div>
             <div class="quizlist-card-title">${this.escapeHtml(exam.title)}</div>
             <div class="quizlist-card-meta">
-              <span class="quizlist-card-question-count">${exam.unitCount} stem${exam.unitCount === 1 ? "" : "s"}</span>
+              <span class="quizlist-card-question-count">${exam.unitCount} question${exam.unitCount === 1 ? "" : "s"}</span>
               <span class="quizlist-card-attempts">${exam.totalMarks} marks</span>
             </div>
           </div>
@@ -440,23 +487,26 @@ export const pastPaperApp = {
     const branchRows = unit.branches
       .map((branch) => {
         const branchId = this.escapeHtml(branch.branchId);
+        const branchOrder = Number(branch.order || 0);
+        const branchLetter = ["a", "b", "c", "d", "e"][branchOrder - 1] || "";
         return `
           <div class="past-paper-branch" data-branch-id="${branchId}">
-            <p class="past-paper-branch-prompt">${this.escapeHtml(branch.prompt)}</p>
-            <div class="tf-options past-paper-branch-options">
+            <div class="past-paper-branch-copy">
+              <span class="past-paper-branch-number">${branchLetter}</span>
+              <p class="past-paper-branch-prompt">${this.escapeHtml(branch.prompt)}</p>
+            </div>
+            <div class="tf-options past-paper-branch-options" role="radiogroup" aria-label="Statement ${branchOrder || ""} answer">
               <label class="quiz-choice tf-btn opt-true" data-quiz-choice>
                 <input class="quiz-choice-input" type="radio" name="pp-${branchId}" value="true" data-branch-input="${branchId}">
-                <span class="tf-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M6.5 12.5l3.2 3.2L17.5 8"></path></svg>
-                </span>
-                <span class="tf-label">True</span>
+                <span class="past-paper-option-text">True</span>
               </label>
               <label class="quiz-choice tf-btn opt-false" data-quiz-choice>
                 <input class="quiz-choice-input" type="radio" name="pp-${branchId}" value="false" data-branch-input="${branchId}">
-                <span class="tf-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path></svg>
-                </span>
-                <span class="tf-label">False</span>
+                <span class="past-paper-option-text">False</span>
+              </label>
+              <label class="quiz-choice tf-btn opt-not-sure" data-quiz-choice>
+                <input class="quiz-choice-input" type="radio" name="pp-${branchId}" value="not_sure" data-branch-input="${branchId}">
+                <span class="past-paper-option-text">Not sure</span>
               </label>
             </div>
           </div>
@@ -467,8 +517,8 @@ export const pastPaperApp = {
     return `
       <article class="question-card question-card-tf past-paper-unit-card">
         <div class="question-meta">
-          <span class="q-number">STEM ${unitIndex + 1}</span>
-          <span class="q-type-badge">5 MARKS</span>
+          <span class="q-number">QUESTION ${unitIndex + 1}</span>
+          <span class="q-type-badge">${unit.branches.length} ${unit.branches.length === 1 ? "MARK" : "MARKS"}</span>
         </div>
         <p class="question-stem">${this.escapeHtml(unit.stem)}</p>
         ${imageHtml}
@@ -511,10 +561,9 @@ export const pastPaperApp = {
     this.showOnly("past-paper-session-view");
     document.getElementById("past-paper-mode-badge").textContent = "PAST PAPER";
     document.getElementById("past-paper-page-kicker").textContent =
-      `${exam.yearLabel || pastPapers.currentYear} / ${exam.topicLabel || pastPapers.currentTopic}`;
-    document.getElementById("past-paper-page-title").textContent = exam.title;
-    document.getElementById("past-paper-page-meta").textContent =
-      `${units.length} stems / ${totalMarks} marks`;
+      `${exam.yearLabel || pastPapers.currentYear} / ${exam.topicLabel || pastPapers.currentTopic} / ${exam.title}`;
+    document.getElementById("past-paper-page-title").textContent = "";
+    document.getElementById("past-paper-page-meta").textContent = "";
     document.getElementById("past-paper-total-count").textContent = String(totalMarks);
     document.getElementById("past-paper-unit-count").textContent = String(units.length);
     document.getElementById("past-paper-answered-count").textContent = "0";
@@ -522,7 +571,7 @@ export const pastPaperApp = {
     document.getElementById("past-paper-progress-fill").style.width = "0%";
     document.getElementById("past-paper-progress-copy").textContent =
       `0/${totalMarks} answered`;
-    this.dom.pastPaperSubmitBtn.disabled = true;
+    this.dom.pastPaperSubmitBtn.disabled = totalMarks === 0;
     this.dom.pastPaperForm.innerHTML = units
       .map((unit, index) => this.renderPastPaperUnitMarkup(unit, index))
       .join("");
@@ -552,9 +601,17 @@ export const pastPaperApp = {
     this.dom.pastPaperForm
       ?.querySelectorAll('input[data-branch-input]:checked')
       .forEach((input) => {
+        if (input.value === "not_sure") return;
         answers[input.dataset.branchInput] = input.value;
       });
     return answers;
+  },
+
+  getPastPaperSelectedCount() {
+    return (
+      this.dom.pastPaperForm?.querySelectorAll('input[data-branch-input]:checked')
+        .length || 0
+    );
   },
 
   updatePastPaperProgressUI() {
@@ -562,7 +619,7 @@ export const pastPaperApp = {
       (sum, unit) => sum + unit.branches.length,
       0
     );
-    const answered = Object.keys(this.getPastPaperAnswerMap()).length;
+    const answered = this.getPastPaperSelectedCount();
     const percent = total ? Math.round((answered / total) * 100) : 0;
 
     document.getElementById("past-paper-answered-count").textContent = String(answered);
@@ -572,7 +629,7 @@ export const pastPaperApp = {
     document.getElementById("past-paper-progress-copy").textContent =
       `${answered}/${total} answered`;
     if (this.dom.pastPaperSubmitBtn) {
-      this.dom.pastPaperSubmitBtn.disabled = answered === 0;
+      this.dom.pastPaperSubmitBtn.disabled = total === 0;
     }
   },
 
@@ -580,6 +637,21 @@ export const pastPaperApp = {
     const pastPapers = this.getPastPaperState();
     const setId = normalizeText(pastPapers.currentSetId);
     if (!setId || this.pastPaperSubmissionInFlight) return;
+    const total = pastPapers.activeUnits.reduce(
+      (sum, unit) => sum + unit.branches.length,
+      0
+    );
+    const answered = this.getPastPaperSelectedCount();
+    const unanswered = Math.max(0, total - answered);
+    if (unanswered > 0) {
+      await confirmDialog({
+        title: "Finish exam before submitting",
+        message: `${unanswered} unanswered branch${unanswered === 1 ? "" : "es"} remaining. You need to finish every branch before you can submit this past paper.`,
+        submitLabel: "Continue exam",
+        cancelLabel: "Close",
+      });
+      return;
+    }
 
     this.pastPaperSubmissionInFlight = true;
     if (this.dom.pastPaperSubmitBtn) this.dom.pastPaperSubmitBtn.disabled = true;
@@ -632,67 +704,162 @@ export const pastPaperApp = {
 
     const attempt = review.attempt || {};
     const units = Array.isArray(review.units) ? review.units : [];
+    const pastPapers = this.getPastPaperState();
+    const setId = normalizeText(attempt.setId || attempt.set_id || "");
+    if (setId) {
+      pastPapers.currentSetId = setId;
+      try {
+        await this.loadPastPaperYears();
+        const exam = this.findPastPaperExam(setId);
+        if (exam) {
+          pastPapers.currentYear = exam.yearLabel || pastPapers.currentYear;
+          pastPapers.currentTopic = exam.topicLabel || pastPapers.currentTopic;
+          pastPapers.activeExam = exam;
+        }
+      } catch (error) {
+        console.warn("Past paper catalog lookup failed during review:", error);
+      }
+    }
     this.showOnly("past-paper-review-view");
     document.getElementById("past-paper-review-title").textContent = "Past Paper Result";
     document.getElementById("past-paper-review-kicker").textContent = "Attempt result";
+    const score = Number(attempt.score || 0);
+    const totalMarks = Number(attempt.totalMarks || 0);
+    const correct = Number(attempt.correct || 0);
+    const wrong = Number(attempt.wrong || 0);
+    const unanswered = Number(attempt.unanswered || 0);
     document.getElementById("past-paper-review-score").textContent =
-      `${Number(attempt.score || 0)}/${Number(attempt.totalMarks || 0)}`;
-    document.getElementById("past-paper-review-percent").textContent =
-      `${Number(attempt.percentage || 0)}%`;
+      `${score}/${totalMarks}`;
+    const percentage = Number(attempt.percentage || 0);
+    const percentNode = document.getElementById("past-paper-review-percent");
+    percentNode.textContent = `${percentage}%`;
+    percentNode.className = `results-score-pct ${this.getResultsPercentageTone?.(percentage) || "poor"}`;
     document.getElementById("past-paper-review-correct").textContent =
-      String(Number(attempt.correct || 0));
+      String(correct);
     document.getElementById("past-paper-review-wrong").textContent =
-      String(Number(attempt.wrong || 0));
+      String(wrong);
     document.getElementById("past-paper-review-unanswered").textContent =
-      String(Number(attempt.unanswered || 0));
+      String(unanswered);
+    this.updatePastPaperReviewSegments(correct, wrong, unanswered, totalMarks);
     document.getElementById("past-paper-review-count").textContent =
-      `${units.length} stem${units.length === 1 ? "" : "s"}`;
+      `${units.length} ${units.length === 1 ? "question" : "questions"}`;
     this.dom.pastPaperReviewList.innerHTML = units
       .map((unit, unitIndex) => this.renderPastPaperReviewUnit(unit, unitIndex))
       .join("");
+    this.bindPastPaperReviewActions();
+  },
+
+  updatePastPaperReviewSegments(correct, wrong, unanswered, totalMarks) {
+    const total = Number(totalMarks || 0);
+    const setWidth = (id, value) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.style.width = total ? `${Math.max(0, (Number(value || 0) / total) * 100)}%` : "0%";
+    };
+    setWidth("past-paper-review-correct-segment", correct);
+    setWidth("past-paper-review-wrong-segment", wrong);
+    setWidth("past-paper-review-unanswered-segment", unanswered);
+  },
+
+  bindPastPaperReviewActions() {
+    const retryButton = document.getElementById("btn-retry-past-paper");
+    const backButton = document.getElementById("btn-past-paper-back-list");
+    const pastPapers = this.getPastPaperState();
+    if (retryButton) {
+      retryButton.onclick = () => {
+        const setId = normalizeText(pastPapers.currentSetId);
+        if (!setId) {
+          this.navigate("past-paper-topics", {
+            year: pastPapers.currentYear || this.state.currentLevel,
+          });
+          return;
+        }
+        this.navigate("past-paper-session", {
+          setId,
+          year: pastPapers.currentYear || this.state.currentLevel,
+          topic: pastPapers.currentTopic || this.state.currentArea,
+        });
+      };
+    }
+    if (backButton) {
+      backButton.onclick = () => {
+        const year = pastPapers.currentYear || this.state.currentLevel;
+        const topic = pastPapers.currentTopic || this.state.currentArea;
+        if (year && topic) {
+          this.navigate("past-paper-exams", { year, topic });
+          return;
+        }
+        this.navigate("past-paper-topics", { year });
+      };
+    }
   },
 
   renderPastPaperReviewUnit(unit, unitIndex) {
     const branches = Array.isArray(unit.branches) ? unit.branches : [];
     const correct = branches.filter((branch) => branch.isCorrect).length;
     return `
-      <article class="result-card review-card past-paper-review-unit">
-        <div class="review-card-inner">
-          <div class="review-top">
-            <span class="review-q-num">STEM ${unitIndex + 1}</span>
-            <span class="verdict-badge ${correct === branches.length ? "correct" : "wrong"}">${correct}/${branches.length}</span>
+      <section class="past-paper-review-question ${correct === branches.length ? "is-correct" : "is-mixed"}" aria-label="Question ${unitIndex + 1}">
+        <div class="past-paper-review-question-head">
+          <span class="review-q-num">QUESTION ${unitIndex + 1}</span>
+          <span class="q-type-badge">${branches.length} ${branches.length === 1 ? "MARK" : "MARKS"}</span>
+        </div>
+        <p class="past-paper-review-parent">${this.escapeHtml(unit.stem || "")}</p>
+        <div class="past-paper-review-scoreline">
+          <span class="verdict-badge ${correct === branches.length ? "correct" : "wrong"}">${correct}/${branches.length} correct</span>
+        </div>
+        <div class="past-paper-review-branches">
+          ${branches
+            .map((branch) => this.renderPastPaperReviewBranch(branch))
+            .join("")}
+        </div>
+      </section>
+    `;
+  },
+
+  renderPastPaperReviewBranch(branch) {
+    const branchOrder = Number(branch.order || 0);
+    const branchLetter = ["a", "b", "c", "d", "e"][branchOrder - 1] || "";
+    const isUnanswered = branch.userAnswer !== true && branch.userAnswer !== false;
+    const cardClass = branch.isCorrect ? "is-correct" : isUnanswered ? "is-unsure" : "is-wrong";
+    const explanation = branch.explanation
+      ? `
+        <div class="explanation past-paper-review-explanation">
+          <div class="explanation-label">Explanation</div>
+          <p class="explanation-text">${this.escapeHtml(branch.explanation)}</p>
+        </div>
+      `
+      : "";
+    const answerGrid = branch.isCorrect
+      ? `
+        <div class="answer-grid single">
+          <div class="answer-chip your">
+            <span class="chip-label">Your answer</span>
+            <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.userAnswer))}</span>
           </div>
-          <p class="review-stem">${this.escapeHtml(unit.stem || "")}</p>
-          <div class="past-paper-review-branches">
-            ${branches
-              .map(
-                (branch) => `
-                <div class="past-paper-review-branch ${branch.isCorrect ? "is-correct" : "is-wrong"}">
-                  <div class="past-paper-review-branch-head">
-                    <span>Branch ${Number(branch.order || 0)}</span>
-                    <strong>${branch.isCorrect ? "Correct" : "Missed"}</strong>
-                  </div>
-                  <p>${this.escapeHtml(branch.prompt || "")}</p>
-                  <div class="answer-grid">
-                    <div class="answer-chip ${branch.isCorrect ? "your" : "yours-wrong"}">
-                      <span class="chip-label">Your answer</span>
-                      <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.userAnswer))}</span>
-                    </div>
-                    <div class="answer-chip correct-ans">
-                      <span class="chip-label">Correct</span>
-                      <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.correctAnswer))}</span>
-                    </div>
-                  </div>
-                  ${
-                    branch.explanation
-                      ? `<div class="explanation"><div class="explanation-label">Explanation</div><p class="explanation-text">${this.escapeHtml(branch.explanation)}</p></div>`
-                      : ""
-                  }
-                </div>
-              `
-              )
-              .join("")}
+        </div>
+      `
+      : `
+        <div class="answer-grid">
+          <div class="answer-chip ${isUnanswered ? "yours-unsure" : "yours-wrong"}">
+            <span class="chip-label">Your answer</span>
+            <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.userAnswer))}</span>
           </div>
+          <div class="answer-chip correct-ans">
+            <span class="chip-label">Correct</span>
+            <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.correctAnswer))}</span>
+          </div>
+        </div>
+      `;
+
+    return `
+      <article class="past-paper-review-branch ${cardClass}">
+        <div class="past-paper-review-branch-head">
+          <span class="past-paper-branch-number">${branchLetter}</span>
+          <p class="past-paper-review-branch-prompt">${this.escapeHtml(branch.prompt || "")}</p>
+        </div>
+        <div class="past-paper-review-branch-body">
+          ${answerGrid}
+          ${explanation}
         </div>
       </article>
     `;

@@ -4,18 +4,19 @@
   "private": true,
   "description": "quiz app",
   "scripts": {
-    "start": "node scripts/static-server.mjs",
+    "start": "http-server public -a 0.0.0.0 -p 3000 -c-1",
     "build:css": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css",
     "watch:css": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css --watch",
     "lint:js": "eslint src --ext .js",
     "lint:css": "stylelint \"style.css\" \"styles/{tokens,base,layout,components,themes,auth,learner,admin,dialog}.css\"",
     "format": "prettier --write \"**/*.{js,json,css,html,mjs}\"",
     "format:check": "prettier --check \"**/*.{js,json,css,html,mjs}\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "powershell -ExecutionPolicy Bypass -File scripts/run-e2e.ps1"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "eslint": "^9.25.1",
+    "http-server": "^14.1.1",
     "prettier": "^3.5.3",
     "stylelint": "^16.17.0",
     "stylelint-config-standard": "^38.0.0",

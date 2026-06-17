@@ -1891,7 +1891,7 @@ export const learnerFeatures = {
         ? "browse-card-progress is-empty"
         : "browse-card-progress is-ghost";
     const progressFillPercent = hasProgressBar ? safePercent : 0;
-    const progressText = `${hasProgressBar ? safePercent : 0}%`;
+    const progressText = progressLabel || `${hasProgressBar ? safePercent : 0}%`;
     const metaClassName = hasMetaRow
       ? "browse-card-meta"
       : "browse-card-meta is-empty";
@@ -2875,6 +2875,7 @@ export const learnerFeatures = {
     }
 
     const areaRecords = this.state.areasByLevel[level] || [];
+    this.showLoadingView();
     const areaSummaries = await Promise.all(
       areaRecords.map(async (areaRecord) => [
         areaRecord.name,
@@ -3672,7 +3673,6 @@ export const learnerFeatures = {
       });
       return;
     }
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   },
 
   getResultsPercentageTone(percent) {

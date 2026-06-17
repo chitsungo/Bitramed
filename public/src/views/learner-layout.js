@@ -104,8 +104,8 @@ export function renderLearnerShell() {
           <p id="past-paper-topics-subtitle" class="browse-page-subtitle"></p>
         </div>
         <div class="browse-section-label">
-          <span class="browse-section-title">Topics</span>
-          <span id="past-paper-topics-count" class="browse-section-count">0 topics</span>
+          <span class="browse-section-title"></span>
+          <span id="past-paper-topics-count" class="browse-section-count"></span>
         </div>
         <div id="past-paper-topics-grid" class="browse-card-list"></div>
       </section>
@@ -121,7 +121,6 @@ export function renderLearnerShell() {
                 <span class="quizlist-eyebrow-line"></span>
               </div>
               <h2 id="past-paper-exams-title" class="quizlist-title">Topic</h2>
-              <div class="quizlist-mode-badge">Full Exams</div>
             </div>
           </div>
           <p id="past-paper-exams-subtitle" class="browse-page-subtitle"></p>
@@ -156,7 +155,7 @@ export function renderLearnerShell() {
             </div>
             <div class="quiz-session-stat-cell">
               <div id="past-paper-unit-count" class="quiz-session-stat-value">0</div>
-              <div class="quiz-session-stat-key">Stems</div>
+              <div class="quiz-session-stat-key">Questions</div>
             </div>
           </div>
 
@@ -212,6 +211,16 @@ export function renderLearnerShell() {
               </div>
             </div>
 
+            <div class="results-score-bar-wrap">
+              <div class="results-score-bar-track" aria-hidden="true">
+                <div class="results-score-bar-segments">
+                  <div id="past-paper-review-correct-segment" class="results-score-segment seg-correct"></div>
+                  <div id="past-paper-review-wrong-segment" class="results-score-segment seg-wrong"></div>
+                  <div id="past-paper-review-unanswered-segment" class="results-score-segment seg-unsure"></div>
+                </div>
+              </div>
+            </div>
+
             <div class="results-score-breakdown">
               <div class="results-breakdown-cell">
                 <div id="past-paper-review-correct" class="results-breakdown-value correct">0</div>
@@ -229,11 +238,16 @@ export function renderLearnerShell() {
           </div>
 
           <div class="results-section-header">
-            <span class="results-section-title">Stem Review</span>
-            <span id="past-paper-review-count" class="results-section-count">0 stems</span>
+            <span class="results-section-title">Question Review</span>
+            <span id="past-paper-review-count" class="results-section-count">0 branches</span>
           </div>
 
           <div id="past-paper-review-list" class="results-review-list"></div>
+
+          <div id="past-paper-results-bottom-actions" class="results-bottom-actions">
+            <button id="btn-retry-past-paper" class="results-bottom-btn primary" type="button">Retry Past Paper</button>
+            <button id="btn-past-paper-back-list" class="results-bottom-btn secondary" type="button">Back to Exams</button>
+          </div>
         </div>
       </section>
     `,
