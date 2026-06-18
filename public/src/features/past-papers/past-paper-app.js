@@ -805,7 +805,7 @@ export const pastPaperApp = {
         </div>
         <p class="past-paper-review-parent">${this.escapeHtml(unit.stem || "")}</p>
         <div class="past-paper-review-scoreline">
-          <span class="verdict-badge ${correct === branches.length ? "correct" : "wrong"}">${correct}/${branches.length} correct</span>
+          <span class="verdict-badge ${correct === branches.length ? "correct" : "wrong"}">${correct}/${branches.length} CORRECT</span>
         </div>
         <div class="past-paper-review-branches">
           ${branches
@@ -823,9 +823,16 @@ export const pastPaperApp = {
     const cardClass = branch.isCorrect ? "is-correct" : isUnanswered ? "is-unsure" : "is-wrong";
     const explanation = branch.explanation
       ? `
-        <div class="explanation past-paper-review-explanation">
-          <div class="explanation-label">Explanation</div>
-          <p class="explanation-text">${this.escapeHtml(branch.explanation)}</p>
+        <div class="explanation past-paper-review-explanation result-explanation" data-open="false" data-hide-label="HIDE EXPLANATION">
+          <button class="result-explanation-toggle" type="button" aria-expanded="false">
+            <span class="result-explanation-toggle-text">VIEW EXPLANATION</span>
+            <span class="result-explanation-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="result-explanation-panel" aria-hidden="true">
+            <div class="result-explanation-inner">
+              <p class="explanation-text">${this.escapeHtml(branch.explanation)}</p>
+            </div>
+          </div>
         </div>
       `
       : "";
@@ -833,7 +840,7 @@ export const pastPaperApp = {
       ? `
         <div class="answer-grid single">
           <div class="answer-chip your">
-            <span class="chip-label">Your answer</span>
+            <span class="chip-label">YOUR ANSWER</span>
             <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.userAnswer))}</span>
           </div>
         </div>
@@ -841,11 +848,11 @@ export const pastPaperApp = {
       : `
         <div class="answer-grid">
           <div class="answer-chip ${isUnanswered ? "yours-unsure" : "yours-wrong"}">
-            <span class="chip-label">Your answer</span>
+            <span class="chip-label">YOUR ANSWER</span>
             <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.userAnswer))}</span>
           </div>
           <div class="answer-chip correct-ans">
-            <span class="chip-label">Correct</span>
+            <span class="chip-label">CORRECT</span>
             <span class="chip-val">${this.escapeHtml(boolToAnswer(branch.correctAnswer))}</span>
           </div>
         </div>

@@ -100,6 +100,10 @@ export const learnerCore = {
       window.addEventListener("popstate", () => {
         void this.router();
       });
+      window.addEventListener("pageshow", (event) => {
+        if (!event.persisted) return;
+        void this.router();
+      });
       const restoredCachedState = this.restoreAppDataCache();
 
       if (restoredCachedState) {
@@ -1274,6 +1278,30 @@ export const learnerCore = {
         this.toggleResultsReviewFilter();
       };
     }
+    const bindExplanationToggles = (container) => {
+      if (!container) return;
+      container.addEventListener("click", (event) => {
+        const toggle = event.target.closest?.(".result-explanation-toggle");
+        if (!toggle || !container.contains(toggle)) return;
+
+        const explanation = toggle.closest(".result-explanation");
+        const panel = explanation?.querySelector(".result-explanation-panel");
+        const label = toggle.querySelector(".result-explanation-toggle-text");
+        if (!explanation || !panel) return;
+
+        const isOpen = explanation.dataset.open === "true";
+        explanation.dataset.open = isOpen ? "false" : "true";
+        toggle.setAttribute("aria-expanded", isOpen ? "false" : "true");
+        panel.setAttribute("aria-hidden", isOpen ? "true" : "false");
+        if (label) {
+          label.textContent = isOpen
+            ? explanation.dataset.closedLabel || "VIEW EXPLANATION"
+            : explanation.dataset.hideLabel || "HIDE";
+        }
+      });
+    };
+    bindExplanationToggles(this.dom.resultsContainer);
+    bindExplanationToggles(this.dom.pastPaperReviewList);
     this.bindOptionalClick("btn-retry-results", () => {
       this.clearQuizDraft();
       this.navigate("quiz", {
@@ -2076,17 +2104,33 @@ export const learnerCore = {
     const target = document.getElementById(idToShow);
     if (!target) return Promise.resolve();
 
+    const isLoadingRequest = idToShow === "loading-view";
+    const hasPendingLoading =
+      !!this.pendingLoadingTimer || !!this.pendingLoadingResolve;
+    const hasActiveRouteTransition =
+      document.body.classList.contains("route-transitioning");
+
+    if (!isLoadingRequest && (hasPendingLoading || hasActiveRouteTransition)) {
+      ++this.routeTransitionSequence;
+      this.cancelPendingLoadingReveal();
+      document.body.classList.remove("route-transitioning");
+    }
+
     const current = this.getActiveRouteView();
     if (current === target && !target.hidden) {
+      target.setAttribute("aria-hidden", "false");
+      this.cleanupRouteViewClasses(target);
       target.classList.add("view-active");
       this.routeTransitionPromise = Promise.resolve();
       return this.routeTransitionPromise;
     }
 
     const sequence = ++this.routeTransitionSequence;
-    this.cancelPendingLoadingReveal();
+    if (isLoadingRequest) {
+      this.cancelPendingLoadingReveal();
+    }
 
-    if (idToShow === "loading-view" && current && !current.hidden) {
+    if (isLoadingRequest && current && !current.hidden) {
       this.routeTransitionPromise = new Promise((resolve) => {
         this.pendingLoadingResolve = resolve;
         this.pendingLoadingTimer = window.setTimeout(() => {

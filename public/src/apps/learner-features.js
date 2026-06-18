@@ -2658,8 +2658,60 @@ export const learnerFeatures = {
     return true;
   },
 
+  parseLegacyResultCards(rawHtml = "") {
+    if (!rawHtml) return [];
+
+    const temp = document.createElement("div");
+    temp.innerHTML = rawHtml;
+
+    return [...temp.querySelectorAll(".result-card")].map((card, index) => {
+      const question =
+        card.querySelector(".review-stem, .result-question, .question-stem")
+          ?.textContent || "";
+      const userAnswer =
+        card.querySelector(
+          ".answer-chip.your .chip-val, .answer-chip.yours-wrong .chip-val, .answer-chip.yours-unsure .chip-val"
+        )?.textContent || "Not sure";
+      const correctAnswer =
+        card.querySelector(".answer-chip.correct-ans .chip-val")?.textContent ||
+        userAnswer;
+      const explanation =
+        card.querySelector(".explanation-text, .explanation p")?.textContent ||
+        "";
+      const statusClass = card.classList.contains("correct")
+        ? "correct"
+        : card.classList.contains("notsure") ||
+            card.classList.contains("is-unsure") ||
+            /unanswered|not sure/i.test(card.textContent || "")
+          ? "notsure"
+          : "incorrect";
+      const simpleTfAnswers = [userAnswer, correctAnswer].every((value) =>
+        ["true", "false", "not sure", "not sure / not answered"].includes(
+          String(value).trim().toLowerCase()
+        )
+      );
+
+      return {
+        index,
+        type: simpleTfAnswers ? "tf" : "sba",
+        statusClass,
+        statusText:
+          statusClass === "correct"
+            ? "Correct (+1)"
+            : statusClass === "notsure"
+              ? "Unanswered (0)"
+              : "Incorrect (0)",
+        question: question.trim(),
+        imageHtml: "",
+        userAnswer: userAnswer.trim(),
+        correctAnswer: correctAnswer.trim(),
+        explanation: explanation.trim(),
+      };
+    });
+  },
+
   renderStoredResultCards(snapshot) {
-    const results = Array.isArray(snapshot?.results) ? snapshot.results : null;
+    let results = Array.isArray(snapshot?.results) ? snapshot.results : null;
     const setReviewCountLabel = (count, isMissedOnly = false) => {
       if (!this.dom.resultsReviewCount) return;
       this.dom.resultsReviewCount.textContent = isMissedOnly
@@ -2668,24 +2720,12 @@ export const learnerFeatures = {
     };
 
     if (!results) {
-      const rawHtml = snapshot?.cardsHtml || "";
-      if (!this.state.reviewWrongOnly) {
-        this.dom.resultsContainer.innerHTML = rawHtml;
-        const count = rawHtml
-          ? (rawHtml.match(/class="result-card/g) || []).length
-          : 0;
-        setReviewCountLabel(count);
-        this.updateResultsStickySummary(snapshot);
-        return;
-      }
-
-      const temp = document.createElement("div");
-      temp.innerHTML = rawHtml;
-      const filteredCards = [...temp.querySelectorAll(".result-card")].filter(
-        (card) => !card.classList.contains("correct")
-      );
-
-      if (!filteredCards.length) {
+      const legacyResults = this.parseLegacyResultCards(snapshot?.cardsHtml || "");
+      if (legacyResults.length) {
+        results = legacyResults;
+        snapshot.results = legacyResults;
+        snapshot.cardsHtml = "";
+      } else {
         this.dom.resultsContainer.innerHTML =
           this.buildResultsEmptyReviewMarkup();
         if (this.dom.resultsReviewCount) {
@@ -2694,13 +2734,6 @@ export const learnerFeatures = {
         this.updateResultsStickySummary(snapshot);
         return;
       }
-
-      this.dom.resultsContainer.innerHTML = filteredCards
-        .map((card) => card.outerHTML)
-        .join("");
-      setReviewCountLabel(filteredCards.length, true);
-      this.updateResultsStickySummary(snapshot);
-      return;
     }
 
     const visibleResults = this.state.reviewWrongOnly
@@ -3774,12 +3807,19 @@ export const learnerFeatures = {
         <div class="review-card-inner">
           <div class="review-top">
             <span class="review-q-num">REVIEW</span>
-            <span class="verdict-badge correct">ALL CLEAR</span>
+            <span class="verdict-badge correct">CORRECT (+1)</span>
           </div>
           <p class="review-stem">Nothing missed in this attempt.</p>
-          <div class="explanation">
-            <div class="explanation-label">NEXT STEP</div>
-            <p class="explanation-text">You do not have any wrong or unanswered questions to review here. Move on, or retry for another clean run.</p>
+          <div class="explanation result-explanation" data-open="false">
+            <button class="result-explanation-toggle" type="button" aria-expanded="false">
+              <span class="result-explanation-toggle-text">VIEW EXPLANATION</span>
+              <span class="result-explanation-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="result-explanation-panel" aria-hidden="true">
+              <div class="result-explanation-inner">
+                <p class="explanation-text">You do not have any wrong or unanswered questions to review here. Move on, or retry for another clean run.</p>
+              </div>
+            </div>
           </div>
         </div>
       </article>
@@ -3787,6 +3827,16 @@ export const learnerFeatures = {
   },
 
   buildResultReviewCardMarkup(item) {
+    const isTfResult =
+      item.type === "tf" ||
+      [item.userAnswer, item.correctAnswer]
+        .filter(Boolean)
+        .every((value) =>
+          ["true", "false", "not sure / not answered"].includes(
+            String(value).trim().toLowerCase()
+          )
+        );
+    const answerGridTypeClass = isTfResult ? "tf-answer-grid" : "sba-answer-grid";
     const verdictClass =
       item.statusClass === "correct"
         ? "correct"
@@ -3799,28 +3849,31 @@ export const learnerFeatures = {
         : item.statusClass === "notsure"
           ? "is-unsure"
           : "is-wrong";
-    const badgeText =
-      item.statusClass === "notsure"
+    const isCorrect = item.statusClass === "correct";
+    const isUnanswered = item.statusClass === "notsure";
+    const badgeText = isCorrect
+      ? "CORRECT (+1)"
+      : isUnanswered
         ? "UNANSWERED (0)"
-        : this.escapeHtml(String(item.statusText || "").toUpperCase());
+        : "INCORRECT (0)";
     const answerGrid =
-      item.statusClass === "correct"
+      isCorrect
         ? `
-          <div class="answer-grid single">
+          <div class="answer-grid single ${answerGridTypeClass}">
             <div class="answer-chip your">
-              <span class="chip-label">Your answer</span>
+              <span class="chip-label">YOUR ANSWER</span>
               <span class="chip-val">${this.escapeHtml(item.userAnswer)}</span>
             </div>
           </div>
         `
         : `
-          <div class="answer-grid">
+          <div class="answer-grid ${answerGridTypeClass}">
             <div class="answer-chip ${item.statusClass === "notsure" ? "yours-unsure" : "yours-wrong"}">
-              <span class="chip-label">Your answer</span>
+              <span class="chip-label">YOUR ANSWER</span>
               <span class="chip-val">${this.escapeHtml(item.userAnswer)}</span>
             </div>
             <div class="answer-chip correct-ans">
-              <span class="chip-label">Correct</span>
+              <span class="chip-label">CORRECT ANSWER</span>
               <span class="chip-val">${this.escapeHtml(item.correctAnswer)}</span>
             </div>
           </div>
@@ -3836,9 +3889,16 @@ export const learnerFeatures = {
           <p class="review-stem">${this.escapeHtml(item.question)}</p>
           ${item.imageHtml || ""}
           ${answerGrid}
-          <div class="explanation">
-            <div class="explanation-label">Explanation</div>
-            <p class="explanation-text">${this.escapeHtml(item.explanation || "No explanation provided.")}</p>
+          <div class="explanation result-explanation" data-open="false">
+            <button class="result-explanation-toggle" type="button" aria-expanded="false">
+              <span class="result-explanation-toggle-text">VIEW EXPLANATION</span>
+              <span class="result-explanation-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="result-explanation-panel" aria-hidden="true">
+              <div class="result-explanation-inner">
+                <p class="explanation-text">${this.escapeHtml(item.explanation || "No explanation provided.")}</p>
+              </div>
+            </div>
           </div>
         </div>
       </article>
@@ -3857,7 +3917,7 @@ export const learnerFeatures = {
   },
 
   formatUserAnswer(item, userAns) {
-    if (userAns === "NS") return "Not sure / Not answered";
+    if (userAns === "NS") return "Not sure";
     if (item.type === "tf")
       return userAns === "TRUE"
         ? "True"
@@ -4169,6 +4229,7 @@ export const learnerFeatures = {
         const formattedCorrectAnswer = this.formatCorrectAnswer(item);
         results.push({
           index,
+          type: item.type,
           statusClass,
           statusText,
           question: item.q,
