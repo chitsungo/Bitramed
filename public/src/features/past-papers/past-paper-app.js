@@ -9,6 +9,7 @@ import {
 import { confirmDialog } from "../../ui/dialog.js";
 
 const PAST_PAPER_GROUP = "Past Papers";
+const PAST_PAPER_DISPLAY_LABEL = "Exams";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -323,7 +324,7 @@ export const pastPaperApp = {
     if (pastPaperSummary) {
       options.push({
         badge: "P",
-        title: PAST_PAPER_GROUP,
+        title: PAST_PAPER_DISPLAY_LABEL,
         metaLabel: `${pastPaperSummary.topicCount} topic${pastPaperSummary.topicCount === 1 ? "" : "s"}`,
         metricValue: String(pastPaperSummary.examCount),
         metricLabel: pastPaperSummary.examCount === 1 ? "exam" : "exams",
