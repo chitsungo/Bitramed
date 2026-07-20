@@ -8,6 +8,7 @@ import {
 } from "../../services/past-paper-service.js";
 
 const PAST_PAPER_GROUP = "Past Papers";
+const PAST_PAPER_DISPLAY_LABEL = "Exams";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -277,7 +278,7 @@ export const pastPaperApp = {
     if (pastPaperSummary) {
       options.push({
         badge: "P",
-        title: "Exams",
+        title: PAST_PAPER_DISPLAY_LABEL,
         metaLabel: `${pastPaperSummary.topicCount} topic${pastPaperSummary.topicCount === 1 ? "" : "s"}`,
         metricValue: String(pastPaperSummary.examCount),
         metricLabel: pastPaperSummary.examCount === 1 ? "exam" : "exams",
@@ -324,7 +325,8 @@ export const pastPaperApp = {
     }
     if (`${window.location.pathname}${window.location.search}` !== routeUrl) return;
 
-    document.getElementById("past-paper-topics-title").textContent = PAST_PAPER_GROUP;
+    document.getElementById("past-paper-topics-title").textContent =
+      PAST_PAPER_DISPLAY_LABEL;
     document.getElementById("past-paper-topics-kicker").textContent = yearLabel;
     document.getElementById("past-paper-topics-subtitle").textContent =
       "Select a topic to see available full exams.";
@@ -382,7 +384,7 @@ export const pastPaperApp = {
 
     document.getElementById("past-paper-exams-title").textContent = topicLabel;
     document.getElementById("past-paper-exams-kicker").textContent =
-      `${yearLabel} / ${PAST_PAPER_GROUP}`;
+      `${yearLabel} / ${PAST_PAPER_DISPLAY_LABEL}`;
     document.getElementById("past-paper-exams-subtitle").textContent =
       "Choose an exam paper to start.";
     document.getElementById("past-paper-exams-count").textContent =
