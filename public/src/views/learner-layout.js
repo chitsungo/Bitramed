@@ -100,7 +100,7 @@ export function renderLearnerShell() {
             <span class="browse-eyebrow-line"></span>
             <span id="past-paper-topics-kicker" class="browse-eyebrow-text">Year</span>
           </div>
-          <h2 id="past-paper-topics-title" class="browse-page-title">Exams</h2>
+          <h2 id="past-paper-topics-title" class="browse-page-title">Exam</h2>
           <p id="past-paper-topics-subtitle" class="browse-page-subtitle"></p>
         </div>
         <div class="browse-section-label">
@@ -117,7 +117,7 @@ export function renderLearnerShell() {
             <div class="quizlist-header-copy">
               <div class="quizlist-eyebrow">
                 <span class="quizlist-eyebrow-line"></span>
-                <span id="past-paper-exams-kicker" class="quizlist-eyebrow-text">Exams</span>
+                <span id="past-paper-exams-kicker" class="quizlist-eyebrow-text">Exam</span>
                 <span class="quizlist-eyebrow-line"></span>
               </div>
               <h2 id="past-paper-exams-title" class="quizlist-title">Topic</h2>

@@ -8,7 +8,7 @@ import {
 } from "../../services/past-paper-service.js";
 
 const PAST_PAPER_GROUP = "Past Papers";
-const PAST_PAPER_DISPLAY_LABEL = "Exams";
+const PAST_PAPER_DISPLAY_LABEL = "Exam";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
