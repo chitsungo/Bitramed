@@ -1,14 +1,16 @@
 $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$serverScript = Join-Path $root "node_modules\http-server\bin\http-server"
+$vite = Join-Path $root "node_modules\vite\bin\vite.js"
 $playwright = Join-Path $root "node_modules\.bin\playwright.cmd"
 $server = $null
+$previousViteE2e = $env:VITE_E2E
 
 try {
+  $env:VITE_E2E = "1"
   $server = Start-Process `
     -FilePath "node.exe" `
-    -ArgumentList @($serverScript, "public", "-a", "0.0.0.0", "-p", "3000", "-c-1") `
+    -ArgumentList @($vite, "--host", "0.0.0.0", "--port", "3000", "--strictPort") `
     -WorkingDirectory $root `
     -WindowStyle Hidden `
     -PassThru
@@ -33,6 +35,7 @@ try {
   & $playwright test @args
   exit $LASTEXITCODE
 } finally {
+  $env:VITE_E2E = $previousViteE2e
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
   }

@@ -1,16 +1,23 @@
 export default [
   {
-    files: ["src/**/*.js", "tests/**/*.js"],
+    files: ["src/**/*.js", "src/**/*.jsx", "tests/**/*.js"],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
       globals: {
         URL: "readonly",
         console: "readonly",
         document: "readonly",
+        DOMParser: "readonly",
         Intl: "readonly",
         JSON: "readonly",
         localStorage: "readonly",
+        Map: "readonly",
         navigator: "readonly",
         Node: "readonly",
         Promise: "readonly",
@@ -18,13 +25,14 @@ export default [
         setTimeout: "readonly",
         structuredClone: "readonly",
         URLSearchParams: "readonly",
-        window: "readonly"
-      }
+        window: "readonly",
+        __BITRAMED_E2E__: "readonly",
+      },
     },
     rules: {
       "no-console": "off",
       "no-unreachable": "error",
-      "prefer-const": "error"
-    }
-  }
+      "prefer-const": "error",
+    },
+  },
 ];

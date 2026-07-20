@@ -535,6 +535,10 @@ async function stubSupabase(
     },
   ];
 
+  await page.addInitScript(() => {
+    window.__BITRAMED_E2E__ = true;
+  });
+
   await page.route(
     "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
     async (route) => {
@@ -1437,9 +1441,9 @@ test("admin overview promotes the silent cohort card", async ({ page }) => {
     "Stats",
     "Access Control",
   ]);
-  await expect(page.locator(".admin-route-nav [data-admin-overview]")).toContainText(
-    "Needs Activity"
-  );
+  await expect(
+    page.locator(".admin-route-nav [data-admin-overview]")
+  ).toContainText("Needs Activity");
   await expect(page.locator("#admin-overview-active-count")).toHaveText("1");
 
   await expect(page.locator("#admin-menu-main")).toContainText(
@@ -1611,6 +1615,78 @@ test("admin mobile layouts stay inside the viewport", async ({ page }) => {
   expect(accessLayout.buttonRight).toBeLessThanOrEqual(
     accessLayout.viewportWidth + 1
   );
+});
+
+test("react shell preserves public route URLs", async ({ page }) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true });
+  await seedLearnerResultSnapshot(page);
+
+  const learnerRoutes = [
+    { path: "/home/", page: "home" },
+    { path: "/year/?year=Year%201", page: "year" },
+    { path: "/modules/?level=Year%201", page: "modules" },
+    { path: "/subtopics/?level=Year%201&area=Anatomy", page: "subtopics" },
+    {
+      path: "/types/?level=Year%201&area=Anatomy&sub=Introduction%20to%20Anatomy",
+      page: "types",
+    },
+    {
+      path: "/quizzes/?level=Year%201&area=Anatomy&sub=Introduction%20to%20Anatomy&type=tf",
+      page: "quizzes",
+    },
+    { path: "/results/?quizId=quiz-tf-1&mode=study", page: "results" },
+    { path: "/setup/?quizId=quiz-tf-1", page: "setup" },
+    { path: "/quiz/?quizId=quiz-tf-1&mode=study", page: "quiz" },
+    { path: "/account/", page: "account" },
+    { path: "/settings/", page: "settings" },
+    { path: "/past-papers/?year=Year%201", page: "past-paper-topics" },
+    {
+      path: "/past-papers/exams/?year=Year%201&topic=Anatomy",
+      page: "past-paper-exams",
+    },
+    {
+      path: "/past-papers/session/?setId=missing-set&year=Year%201&topic=Anatomy",
+      page: "past-paper-session",
+    },
+    { path: "/past-papers/review/?attemptId=missing-attempt", page: "results" },
+  ];
+
+  for (const route of learnerRoutes) {
+    await page.goto(route.path);
+    expect(new URL(page.url()).pathname).toBe(
+      new URL(route.path, "http://x").pathname
+    );
+    await expect
+      .poll(() => page.evaluate(() => document.body.dataset.appPage || ""))
+      .toBe(route.page);
+  }
+
+  const adminRoutes = [
+    { path: "/JAK2V617F/", page: "home" },
+    { path: "/JAK2V617F/stats/", page: "stats" },
+    { path: "/JAK2V617F/access-control/", page: "access" },
+  ];
+
+  for (const route of adminRoutes) {
+    await page.goto(route.path);
+    expect(new URL(page.url()).pathname).toBe(route.path);
+    await expect
+      .poll(() => page.evaluate(() => document.body.dataset.adminPage || ""))
+      .toBe(route.page);
+  }
+});
+
+test("legacy redirect URLs stay compatible", async ({ page }) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true, isAdmin: true });
+
+  await page.goto("/admin.html");
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/home/");
+
+  await page.goto("/app.html");
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/home/");
+
+  await page.goto("/dashboard/");
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/home/");
 });
 
 test("legacy admin route no longer exposes admin shell", async ({ page }) => {

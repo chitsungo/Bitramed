@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bitramed Admin</title>
+    <script src="/src/core/favicon-boot.js"></script>
+    <script src="/src/core/theme-boot.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body class="admin-page" data-admin-page="home">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            id="admin-home-btn"
+            class="brand-home-btn"
+            type="button"
+            aria-label="Go to main app"
+            title="Main App"
+          >
+            <span class="brand-home-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+            </span>
+            <span class="brand-home-text">Bitramed</span>
+          </button>
+        </div>
+
+        <div class="topbar-right">
+          <div id="admin-user-pill" class="topbar-user-pill" hidden>
+            <span
+              id="admin-user-avatar"
+              class="topbar-user-avatar"
+              aria-hidden="true"
+              >O</span
+            >
+            <span id="admin-user-name" class="topbar-user-name">Owner</span>
+          </div>
+
+          <button
+            id="admin-signout-btn"
+            class="icon-btn"
+            aria-label="Sign out"
+            title="Sign out"
+            type="button"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10 17v-3H3v-4h7V7l5 5-5 5Zm8 2h-6v-2h6V7h-6V5h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-wrap">
+        <section id="admin-loading-view" class="panel">
+          <div class="spinner"></div>
+          <p class="muted centered">Loading admin dashboard...</p>
+        </section>
+
+        <section
+          id="admin-denied-view"
+          class="view browse-view admin-state-view"
+          hidden
+        >
+          <div
+            class="dashboard-hero-panel admin-dashboard-hero admin-state-hero"
+          >
+            <div class="dashboard-hero-copy">
+              <div class="browse-eyebrow">
+                <span class="browse-eyebrow-line"></span>
+                <span class="browse-eyebrow-text">Owner Access</span>
+              </div>
+              <h2 class="dashboard-greeting">Access denied,</h2>
+              <p class="dashboard-greeting-name">owner only.</p>
+              <p class="browse-page-subtitle admin-dashboard-lead">
+                This area is reserved for the protected Bitramed owner account.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="admin-dashboard-view"
+          class="view browse-view admin-dashboard-view"
+          hidden
+        >
+          <div
+            id="admin-menu-view"
+            class="admin-screen admin-page-shell admin-page-shell-home"
+          >
+            <div class="dashboard-hero-panel admin-dashboard-hero">
+              <div class="dashboard-hero-copy">
+                <div class="browse-eyebrow">
+                  <span class="browse-eyebrow-line"></span>
+                  <span class="browse-eyebrow-text">DASHBOARD HOME</span>
+                </div>
+                <h2 id="admin-greeting" class="dashboard-greeting">Admin</h2>
+                <p id="admin-greeting-name" class="dashboard-greeting-name">
+                  Workspace.
+                </p>
+                <p
+                  id="admin-dashboard-lead"
+                  class="browse-page-subtitle admin-dashboard-lead"
+                >
+                  A calmer control room for live learner performance and access
+                  operations.
+                </p>
+              </div>
+
+              <nav
+                class="admin-route-nav admin-overview-route-nav"
+                aria-label="Admin sections"
+              >
+                <a
+                  class="admin-route-link is-active"
+                  href="/JAK2V617F/"
+                  aria-current="page"
+                  data-admin-route="overview"
+                  >Dashboard Home</a
+                >
+                <a class="admin-route-link" href="/JAK2V617F/stats/"
+                  >Stats</a
+                >
+                <a class="admin-route-link" href="/JAK2V617F/access-control/"
+                  >Access Control</a
+                >
+                <button
+                  id="admin-overview-active-trigger"
+                  class="admin-route-link admin-route-link-button"
+                  type="button"
+                  data-admin-overview="active-accounts"
+                  aria-pressed="false"
+                >
+                  <span>Needs Activity</span>
+                  <span
+                    id="admin-overview-active-count"
+                    class="admin-route-link-count"
+                    >0</span
+                  >
+                </button>
+              </nav>
+            </div>
+
+            <div class="dashboard-summary-strip admin-summary-strip">
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-menu-active-users"
+                  class="dashboard-summary-value"
+                >
+                  0
+                </div>
+                <div class="dashboard-summary-key">Active Users</div>
+              </div>
+              <div class="dashboard-summary-cell">
+                <div id="admin-menu-attempts" class="dashboard-summary-value">
+                  0
+                </div>
+                <div class="dashboard-summary-key">Attempts</div>
+              </div>
+              <div class="dashboard-summary-cell">
+                <div
+                  id="admin-menu-average"
+                  class="dashboard-summary-value good"
+                >
+                  0%
+                </div>
+                <div class="dashboard-summary-key">Avg. Score</div>
+              </div>
+            </div>
+
+            <div id="admin-menu-main" class="admin-overview-shell">
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Overview Pulse</span>
+                  <span class="browse-section-count">4 live reads</span>
+                </div>
+
+                <div
+                  id="admin-overview-grid"
+                  class="admin-overview-grid admin-menu-pulse-grid"
+                ></div>
+              </section>
+
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Live Brief</span>
+                  <span class="browse-section-count">Executive signal</span>
+                </div>
+
+                <article
+                  id="admin-menu-brief"
+                  class="admin-story-card admin-menu-story-card"
+                ></article>
+              </section>
+
+              <section class="admin-flow-section">
+                <div class="browse-section-label">
+                  <span class="browse-section-title">Attention Queue</span>
+                  <span class="browse-section-count">3 live checks</span>
+                </div>
+
+                <div
+                  id="admin-menu-signals"
+                  class="admin-user-highlights admin-menu-signal-list"
+                ></div>
+              </section>
+            </div>
+
+            <div
+              id="admin-menu-active-shell"
+              class="admin-active-shell"
+              hidden
+            >
+              <div class="admin-active-sub-head">
+                <button
+                  id="btn-admin-overview-back"
+                  class="admin-active-back-btn"
+                  type="button"
+                  aria-label="Back to Dashboard Home"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M15 18l-6-6 6-6"></path>
+                  </svg>
+                  <span>Dashboard Home</span>
+                </button>
+                <div class="browse-section-label admin-active-sub-label">
+                  <span class="browse-section-title">Silent</span>
+                  <span
+                    id="admin-menu-active-count"
+                    class="browse-section-count"
+                    >0 active accounts</span
+                  >
+                </div>
+              </div>
+              <div class="admin-active-shell-grid">
+                <article class="admin-story-card admin-active-summary-card">
+                  <span class="admin-story-kicker">Activation Queue</span>
+                  <h3
+                    id="admin-menu-active-title"
+                    class="admin-story-title admin-active-summary-title"
+                  >
+                    0 active accounts are waiting for a first attempt.
+                  </h3>
+                  <p
+                    id="admin-menu-active-note"
+                    class="admin-story-copy admin-active-summary-copy"
+                  >
+                    These learners have live access but no saved quiz history
+                    yet. Start with the earliest expiries so access gets used
+                    before it goes stale.
+                  </p>
+                  <div class="admin-story-chips">
+                    <span id="admin-menu-active-chip" class="admin-story-chip"
+                      >0 in queue</span
+                    >
+                    <span class="admin-story-chip">Live access enabled</span>
+                    <span class="admin-story-chip">Prioritize earliest expiry</span>
+                  </div>
+                </article>
+
+                <section class="admin-surface-card admin-active-roster-panel">
+                  <div class="browse-section-label admin-active-roster-head">
+                    <span class="browse-section-title">Silent Roster</span>
+                    <span
+                      id="admin-menu-active-meta"
+                      class="browse-section-count"
+                      >Expires soonest first</span
+                    >
+                  </div>
+                  <div id="admin-menu-active-list" class="admin-active-list"></div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/entries/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+@import url("./tailwind.css");
+@import url("./tokens.css");
+@import url("./base.css");
+@import url("./layout.css");
+@import url("./components.css");
+@import url("./themes.css");
+@import url("./auth.css");
+@import url("./learner.css");
+@import url("./past-papers.css");
+@import url("./admin.css");
+@import url("./dialog.css");

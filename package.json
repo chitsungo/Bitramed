@@ -4,13 +4,16 @@
   "private": true,
   "description": "quiz app",
   "scripts": {
-    "start": "http-server public -a 0.0.0.0 -p 3000 -c-1",
-    "build:css": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css",
-    "watch:css": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css --watch",
-    "lint:js": "eslint src --ext .js",
-    "lint:css": "stylelint \"style.css\" \"styles/{tokens,base,layout,components,themes,auth,learner,admin,dialog}.css\"",
-    "format": "prettier --write \"**/*.{js,json,css,html,mjs}\"",
-    "format:check": "prettier --check \"**/*.{js,json,css,html,mjs}\"",
+    "start": "vite --host 0.0.0.0 --port 3000",
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build && powershell -ExecutionPolicy Bypass -File scripts/prepare-public-deploy.ps1",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "build:css": "tailwindcss -i ./src/styles/tw-input.css -o ./src/styles/tailwind.css",
+    "watch:css": "tailwindcss -i ./src/styles/tw-input.css -o ./src/styles/tailwind.css --watch",
+    "lint:js": "eslint src tests --ext .js,.jsx",
+    "lint:css": "stylelint \"src/styles/**/*.css\"",
+    "format": "prettier --write \"**/*.{js,jsx,json,css,html,mjs}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,json,css,html,mjs}\"",
     "test:e2e": "powershell -ExecutionPolicy Bypass -File scripts/run-e2e.ps1"
   },
   "devDependencies": {
@@ -21,5 +24,13 @@
     "stylelint": "^16.17.0",
     "stylelint-config-standard": "^38.0.0",
     "tailwindcss": "^3.4.19"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "@vitejs/plugin-react": "^6.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.0",
+    "vite": "^8.0.16"
   }
 }

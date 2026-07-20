@@ -1,17 +1,10 @@
-const SUPABASE_URL = "https://frlujqujvpqwvtavofdq.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybHVqcXVqdnBxd3Z0YXZvZmRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNjQ2MjgsImV4cCI6MjA4ODg0MDYyOH0.doxi3B9llGw9_z90A23AZDucStRSVvCaxWXXqeJKHXE";
+import { createBitramedSupabaseClient } from "../../shared/services/supabaseClient.js";
+
 const BITRAMED_THEME_STORAGE_KEY = "bitramed:theme-preference";
 const BITRAMED_SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 
 export function createSupabaseClient() {
-  const url = String(SUPABASE_URL || "").trim();
-  const key = String(SUPABASE_KEY || "").trim();
-
-  if (!window.supabase || typeof window.supabase.createClient !== "function") {
-    throw new Error("Library did not load.");
-  }
-
-  return window.supabase.createClient(url, key);
+  return createBitramedSupabaseClient();
 }
 
 export function normalizeThemePreference(value) {
