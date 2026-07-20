@@ -277,7 +277,7 @@ export const pastPaperApp = {
     if (pastPaperSummary) {
       options.push({
         badge: "P",
-        title: PAST_PAPER_GROUP,
+        title: "Exams",
         metaLabel: `${pastPaperSummary.topicCount} topic${pastPaperSummary.topicCount === 1 ? "" : "s"}`,
         metricValue: String(pastPaperSummary.examCount),
         metricLabel: pastPaperSummary.examCount === 1 ? "exam" : "exams",

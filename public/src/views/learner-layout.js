@@ -177,7 +177,7 @@ export function renderLearnerShell() {
           <div class="quiz-submit-inner">
             <button id="btn-submit-past-paper" class="quiz-submit-btn" type="button" disabled>
               <span id="past-paper-progress-copy" class="quiz-submit-progress">0/0 answered</span>
-              <span class="quiz-submit-btn-label">Submit Past Paper</span>
+              <span class="quiz-submit-btn-label">Submit</span>
               <span class="quiz-submit-btn-arrow" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M5 12h12"></path>
