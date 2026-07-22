@@ -1,7 +1,16 @@
 import { TYPE_META } from "../core/type-meta.js";
+import {
+  deleteAllAssessmentProgress,
+  deleteAssessmentProgress,
+  fetchAssessmentProgress,
+  upsertAssessmentProgress,
+} from "../services/assessment-progress-service.js";
 import { confirmDialog, quizSettingsDialog } from "../ui/dialog.js";
 
 export const learnerFeatures = {
+  assessmentProgressWriteQueue: Promise.resolve(),
+  assessmentProgressUnavailable: false,
+
   async refreshDatabase({
     silent = false,
     forceToast = false,
@@ -56,7 +65,7 @@ export const learnerFeatures = {
     const message = String(error?.message || "").toLowerCase();
 
     return (
-      ["PGRST202", "42883", "42P01"].includes(code) ||
+      ["PGRST202", "PGRST205", "42883", "42P01"].includes(code) ||
       message.includes("could not find the function") ||
       message.includes("does not exist") ||
       message.includes("schema cache")
@@ -1015,12 +1024,28 @@ export const learnerFeatures = {
     }
 
     try {
-      const { error } = await this.withTimeout(
-        this.getSupabase().from("quiz_attempts").delete().eq("user_id", userId),
-        12000,
-        "Resetting account"
-      );
-      if (error) throw error;
+      const [attemptsResult, progressResult] = await Promise.all([
+        this.withTimeout(
+          this.getSupabase()
+            .from("quiz_attempts")
+            .delete()
+            .eq("user_id", userId),
+          12000,
+          "Resetting account history"
+        ),
+        this.withTimeout(
+          deleteAllAssessmentProgress(this.getSupabase(), userId),
+          12000,
+          "Resetting saved progress"
+        ),
+      ]);
+      if (attemptsResult.error) throw attemptsResult.error;
+      if (
+        progressResult.error &&
+        !this.isRpcUnavailable(progressResult.error)
+      ) {
+        throw progressResult.error;
+      }
       this.setAttemptsData([]);
       this.state.accountSummary = null;
       this.state.quizAttemptSummariesById = {};
@@ -2246,6 +2271,199 @@ export const learnerFeatures = {
     return `quiz-app:${userId}`;
   },
 
+  getAssessmentProgressTimestamp(draft) {
+    const timestamp = Date.parse(draft?.savedAt || draft?.updatedAt || "");
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  },
+
+  buildAssessmentProgressKey(settings = {}) {
+    const context = settings.context || {};
+    const mode =
+      settings.mode === "exam" || context.mode === "exam" ? "exam" : "study";
+    const durationMinutes = this.normalizeQuizDurationMinutes(
+      settings.durationMinutes ?? context.durationMinutes
+    );
+    const negativeMarking = !!(
+      settings.negativeMarking ?? context.negativeMarking
+    );
+    return [
+      mode,
+      durationMinutes ? `${durationMinutes}m` : "no-time",
+      negativeMarking ? "negative" : "standard",
+    ].join("|");
+  },
+
+  chooseNewestAssessmentDraft(localDraft, accountDraft) {
+    if (!localDraft) return accountDraft || null;
+    if (!accountDraft) return localDraft;
+    return this.getAssessmentProgressTimestamp(accountDraft) >=
+      this.getAssessmentProgressTimestamp(localDraft)
+      ? accountDraft
+      : localDraft;
+  },
+
+  normalizeAccountAssessmentProgress(row) {
+    if (!row || typeof row !== "object") return null;
+    const progressData =
+      row.progress_data && typeof row.progress_data === "object"
+        ? row.progress_data
+        : {};
+    const context =
+      row.context && typeof row.context === "object" ? row.context : {};
+
+    return {
+      ...progressData,
+      context: {
+        ...context,
+        mode: row.mode === "exam" ? "exam" : "study",
+        durationMinutes: this.normalizeQuizDurationMinutes(
+          row.duration_minutes
+        ),
+        negativeMarking: !!row.negative_marking,
+      },
+      durationMinutes: this.normalizeQuizDurationMinutes(row.duration_minutes),
+      negativeMarking: !!row.negative_marking,
+      progressKey: row.progress_key || "",
+      timerExpiresAt: row.timer_expires_at || null,
+      savedAt: row.updated_at || null,
+    };
+  },
+
+  handleAssessmentProgressError(error) {
+    if (this.isRpcUnavailable(error)) {
+      if (!this.assessmentProgressUnavailable) {
+        console.warn(
+          "Account progress storage is unavailable; using the on-device fallback."
+        );
+      }
+      this.assessmentProgressUnavailable = true;
+      return;
+    }
+    console.error("Account progress sync failed:", error);
+  },
+
+  async loadAccountAssessmentProgress(
+    assessmentKind,
+    assessmentId,
+    progressKey = ""
+  ) {
+    const userId = this.state.currentUser?.id;
+    if (
+      !userId ||
+      !assessmentKind ||
+      !assessmentId ||
+      this.assessmentProgressUnavailable
+    ) {
+      return null;
+    }
+
+    try {
+      await this.assessmentProgressWriteQueue.catch(() => undefined);
+      const { data, error } = await this.withTimeout(
+        fetchAssessmentProgress(
+          this.getSupabase(),
+          userId,
+          assessmentKind,
+          assessmentId,
+          progressKey
+        ),
+        8000,
+        "Loading saved progress"
+      );
+      if (error) throw error;
+      return this.normalizeAccountAssessmentProgress(data);
+    } catch (error) {
+      this.handleAssessmentProgressError(error);
+      return null;
+    }
+  },
+
+  enqueueAssessmentProgressWrite(task) {
+    const runTask = async () => {
+      if (this.assessmentProgressUnavailable) return;
+      try {
+        await task();
+      } catch (error) {
+        this.handleAssessmentProgressError(error);
+      }
+    };
+    this.assessmentProgressWriteQueue = this.assessmentProgressWriteQueue.then(
+      runTask,
+      runTask
+    );
+    return this.assessmentProgressWriteQueue;
+  },
+
+  saveAccountAssessmentProgress(assessmentKind, assessmentId, draft) {
+    const userId = this.state.currentUser?.id;
+    if (!userId || !assessmentKind || !assessmentId || !draft) {
+      return Promise.resolve();
+    }
+
+    const context = draft.context || {};
+    const durationMinutes = this.normalizeQuizDurationMinutes(
+      draft.durationMinutes ?? context.durationMinutes
+    );
+    const payload = {
+      mode:
+        draft.mode === "exam" || context.mode === "exam" ? "exam" : "study",
+      durationMinutes,
+      negativeMarking: !!(
+        draft.negativeMarking ?? context.negativeMarking
+      ),
+      context,
+      progressData: {
+        answers:
+          draft.answers && typeof draft.answers === "object"
+            ? draft.answers
+            : {},
+        questionOrder: Array.isArray(draft.questionOrder)
+          ? draft.questionOrder
+          : [],
+      },
+      timerExpiresAt: draft.timerExpiresAt || null,
+    };
+    payload.progressKey = this.buildAssessmentProgressKey(payload);
+
+    return this.enqueueAssessmentProgressWrite(async () => {
+      const { error } = await this.withTimeout(
+        upsertAssessmentProgress(
+          this.getSupabase(),
+          userId,
+          assessmentKind,
+          assessmentId,
+          payload
+        ),
+        8000,
+        "Saving progress"
+      );
+      if (error) throw error;
+    });
+  },
+
+  clearAccountAssessmentProgress(assessmentKind, assessmentId, settings = {}) {
+    const userId = this.state.currentUser?.id;
+    if (!userId || !assessmentKind || !assessmentId) {
+      return Promise.resolve();
+    }
+    const progressKey = this.buildAssessmentProgressKey(settings);
+
+    return this.enqueueAssessmentProgressWrite(async () => {
+      const { error } = await this.withTimeout(
+        deleteAssessmentProgress(
+          this.getSupabase(),
+          userId,
+          assessmentKind,
+          assessmentId,
+          progressKey
+        ),
+        8000,
+        "Clearing saved progress"
+      );
+      if (error) throw error;
+    });
+  },
+
   buildQuizContextKey({
     level,
     area,
@@ -2305,15 +2523,18 @@ export const learnerFeatures = {
     if (!quizId || !(await this.ensureQuizContextFromId(quizId))) return;
 
     const quizMeta = this.getCurrentQuizMeta();
+    const savedProgress = await this.loadAccountAssessmentProgress(
+      "quiz",
+      quizId
+    );
     const settings = await quizSettingsDialog({
       title: this.state.currentQuizTitle || "Start quiz",
-      message: "Choose your timer and marking settings.",
       submitLabel: "Start quiz",
       cancelLabel: "Cancel",
       min: 5,
       max: 30,
-      initial: null,
-      negativeMarking: false,
+      initial: savedProgress?.durationMinutes || null,
+      negativeMarking: !!savedProgress?.negativeMarking,
     });
     if (!settings || !quizMeta) return;
 
@@ -2357,17 +2578,30 @@ export const learnerFeatures = {
     }
   },
 
-  startQuizCountdown() {
+  startQuizCountdown(savedDraft = null) {
     this.stopQuizCountdown();
     const durationMinutes = this.normalizeQuizDurationMinutes(
       this.state.currentExamDurationMinutes
     );
     if (!durationMinutes) return;
     this.state.currentExamDurationMinutes = durationMinutes;
-    this.state.quizTimeRemainingSeconds = durationMinutes * 60;
-    this.quizCountdownDeadline =
-      Date.now() + this.state.quizTimeRemainingSeconds * 1000;
+    const savedDeadline = Date.parse(savedDraft?.timerExpiresAt || "");
+    this.quizCountdownDeadline = Number.isFinite(savedDeadline)
+      ? savedDeadline
+      : Date.now() + durationMinutes * 60 * 1000;
+    this.state.quizTimeRemainingSeconds = Math.max(
+      0,
+      Math.ceil((this.quizCountdownDeadline - Date.now()) / 1000)
+    );
     this.updateQuizTimerUI();
+
+    if (this.state.quizTimeRemainingSeconds <= 0) {
+      window.setTimeout(() => {
+        this.showToast("Time is up. Quiz submitted automatically.");
+        void this.handleSubmission({ force: true, timedOut: true });
+      }, 0);
+      return;
+    }
 
     this.quizCountdownInterval = window.setInterval(async () => {
       if (window.location.pathname !== "/quiz/") {
@@ -2427,16 +2661,63 @@ export const learnerFeatures = {
     }
   },
 
-  loadSavedQuizDraft(context = this.getCurrentQuizContext()) {
-    return this.readStoredJson(this.getQuizDraftStorageKey(context));
+  isQuizDraftForContext(draft, context = this.getCurrentQuizContext()) {
+    if (!draft) return false;
+    const savedContext = draft.context || {};
+    return (
+      (savedContext.mode === "exam" ? "exam" : "study") === context.mode &&
+      this.normalizeQuizDurationMinutes(savedContext.durationMinutes) ===
+        this.normalizeQuizDurationMinutes(context.durationMinutes) &&
+      !!savedContext.negativeMarking === !!context.negativeMarking
+    );
+  },
+
+  async loadSavedQuizDraft(context = this.getCurrentQuizContext()) {
+    const localDraft = this.readStoredJson(this.getQuizDraftStorageKey(context));
+    const accountDraft = await this.loadAccountAssessmentProgress(
+      "quiz",
+      this.state.currentQuizId,
+      this.buildAssessmentProgressKey({ context })
+    );
+    const matchingLocal = this.isQuizDraftForContext(localDraft, context)
+      ? localDraft
+      : null;
+    const matchingAccount = this.isQuizDraftForContext(accountDraft, context)
+      ? accountDraft
+      : null;
+    const draft = this.chooseNewestAssessmentDraft(
+      matchingLocal,
+      matchingAccount
+    );
+
+    if (draft === matchingAccount && draft) {
+      this.writeStoredJson(this.getQuizDraftStorageKey(context), draft);
+    } else if (draft === matchingLocal && draft) {
+      void this.saveAccountAssessmentProgress(
+        "quiz",
+        this.state.currentQuizId,
+        draft
+      );
+    }
+    return draft;
   },
 
   saveQuizDraft(draft, context = this.getCurrentQuizContext()) {
     this.writeStoredJson(this.getQuizDraftStorageKey(context), draft);
+    return this.saveAccountAssessmentProgress(
+      "quiz",
+      this.state.currentQuizId,
+      draft
+    );
   },
 
   clearQuizDraft(context = this.getCurrentQuizContext()) {
     this.removeStoredJson(this.getQuizDraftStorageKey(context));
+    return this.clearAccountAssessmentProgress(
+      "quiz",
+      this.state.currentQuizId,
+      { context }
+    );
   },
 
   loadSavedQuizResult(context = this.getCurrentQuizContext()) {
@@ -2461,6 +2742,12 @@ export const learnerFeatures = {
     const draft = {
       context: this.getCurrentQuizContext(),
       answers,
+      durationMinutes: this.state.currentExamDurationMinutes,
+      negativeMarking: this.state.negativeMarking,
+      timerExpiresAt:
+        this.state.currentExamDurationMinutes && this.quizCountdownDeadline
+          ? new Date(this.quizCountdownDeadline).toISOString()
+          : null,
       savedAt: new Date().toISOString(),
     };
 
@@ -2475,7 +2762,7 @@ export const learnerFeatures = {
 
   persistCurrentQuizDraft() {
     if (!this.state.activeQuestions.length || !this.dom.quizForm) return;
-    this.saveQuizDraft(this.serializeQuizDraft());
+    void this.saveQuizDraft(this.serializeQuizDraft());
   },
 
   restoreQuizDraftIntoForm(draft) {
@@ -3437,8 +3724,10 @@ export const learnerFeatures = {
   async renderQuiz() {
     this.showLoadingView();
     this.stopQuizCountdown();
-    const baseQuestions = await this.fetchQuestionsForCurrentQuiz();
-    const savedDraft = this.loadSavedQuizDraft();
+    const [baseQuestions, savedDraft] = await Promise.all([
+      this.fetchQuestionsForCurrentQuiz(),
+      this.loadSavedQuizDraft(),
+    ]);
     const questions = this.getQuizSessionQuestions(baseQuestions, savedDraft);
     const restoreDraft = savedDraft;
 
@@ -3622,7 +3911,8 @@ export const learnerFeatures = {
       this.showToast("Restored your saved quiz progress.");
     }
     this.updateQuizProgressUI();
-    this.startQuizCountdown();
+    this.startQuizCountdown(restoreDraft);
+    this.persistCurrentQuizDraft();
   },
 
   renderResults() {
@@ -4221,7 +4511,7 @@ export const learnerFeatures = {
         1,
         Number(this.getAttemptStatsForQuizId(quizMeta.id)?.totalAttempts || 0)
       );
-      this.clearQuizDraft();
+      await this.clearQuizDraft();
       this.saveQuizResultSnapshot(resultsSnapshot);
 
       this.navigate("results", {

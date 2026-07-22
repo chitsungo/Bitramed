@@ -78,6 +78,9 @@ export const learnerCore = {
       currentTopic: "",
       currentSetId: "",
       currentAttemptId: "",
+      durationMinutes: null,
+      negativeMarking: false,
+      timeRemainingSeconds: null,
       activeUnits: [],
       activeExam: null,
     },
@@ -160,7 +163,8 @@ export const learnerCore = {
     };
 
     return {
-      bodyPage: normalizedView === "past-paper-review" ? "results" : normalizedView,
+      bodyPage:
+        normalizedView === "past-paper-review" ? "results" : normalizedView,
       title: titles[normalizedView] || "Bitramed",
     };
   },
@@ -276,7 +280,8 @@ export const learnerCore = {
           ? snapshot.subtopicProgressByArea
           : {};
       this.state.quizzesByModule =
-        snapshot?.quizzesByModule && typeof snapshot.quizzesByModule === "object"
+        snapshot?.quizzesByModule &&
+        typeof snapshot.quizzesByModule === "object"
           ? snapshot.quizzesByModule
           : {};
       this.state.quizMap =
@@ -1236,7 +1241,11 @@ export const learnerCore = {
         const trigger = event.target.closest?.(
           ".browse-card-button, .selection-card, .quizlist-card"
         );
-        if (!trigger || trigger.disabled || trigger.classList.contains("is-static")) {
+        if (
+          !trigger ||
+          trigger.disabled ||
+          trigger.classList.contains("is-static")
+        ) {
           return;
         }
 
@@ -1681,8 +1690,7 @@ export const learnerCore = {
             cleanParams.negativeMarking === "true" ||
             cleanParams.negativeMarking === "1"
           : cleanParams.mode === "exam";
-        const mode =
-          cleanParams.duration || negativeMarking ? "exam" : "study";
+        const mode = cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/quiz/?${new URLSearchParams({
               quizId,
@@ -1704,8 +1712,7 @@ export const learnerCore = {
             cleanParams.negativeMarking === "true" ||
             cleanParams.negativeMarking === "1"
           : cleanParams.mode === "exam";
-        const mode =
-          cleanParams.duration || negativeMarking ? "exam" : "study";
+        const mode = cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/results/?${new URLSearchParams({
               quizId,
@@ -1730,12 +1737,26 @@ export const learnerCore = {
               setId: cleanParams.setId,
               year: cleanParams.year || "",
               topic: cleanParams.topic || "",
+              duration: cleanParams.duration || "",
+              negative:
+                cleanParams.negativeMarking === true ||
+                cleanParams.negativeMarking === "true" ||
+                cleanParams.negativeMarking === "1"
+                  ? "1"
+                  : "0",
             }).toString()}`
           : "/home/";
       case "past-paper-review":
         return cleanParams.attemptId
           ? `/past-papers/review/?${new URLSearchParams({
               attemptId: cleanParams.attemptId,
+              duration: cleanParams.duration || "",
+              negative:
+                cleanParams.negativeMarking === true ||
+                cleanParams.negativeMarking === "true" ||
+                cleanParams.negativeMarking === "1"
+                  ? "1"
+                  : "0",
             }).toString()}`
           : "/home/";
       case "account":
@@ -1743,9 +1764,7 @@ export const learnerCore = {
       case "settings":
         return "/settings/";
       default:
-        return query.toString()
-          ? `/home/?${query.toString()}`
-          : "/home/";
+        return query.toString() ? `/home/?${query.toString()}` : "/home/";
     }
   },
 
@@ -1812,6 +1831,7 @@ export const learnerCore = {
     }
 
     this.stopQuizCountdown?.();
+    this.stopPastPaperCountdown?.();
 
     const segments = window.location.pathname
       .replace(/^\/+|\/+$/g, "")
@@ -1837,6 +1857,9 @@ export const learnerCore = {
       pastPapers.currentTopic = "";
       pastPapers.currentSetId = "";
       pastPapers.currentAttemptId = "";
+      pastPapers.durationMinutes = null;
+      pastPapers.negativeMarking = false;
+      pastPapers.timeRemainingSeconds = null;
     }
 
     let view = "home";
@@ -1912,11 +1935,19 @@ export const learnerCore = {
           pastPapers.currentSetId = params.get("setId") || "";
           pastPapers.currentYear = params.get("year") || "";
           pastPapers.currentTopic = params.get("topic") || "";
+          pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
+            params.get("duration")
+          );
+          pastPapers.negativeMarking = params.get("negative") === "1";
         }
       } else if (pastPaperView === "review") {
         view = "past-paper-review";
         if (pastPapers) {
           pastPapers.currentAttemptId = params.get("attemptId") || "";
+          pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
+            params.get("duration")
+          );
+          pastPapers.negativeMarking = params.get("negative") === "1";
         }
       } else {
         view = "past-paper-topics";
@@ -1933,10 +1964,7 @@ export const learnerCore = {
 
     this.syncPageState(view);
 
-    if (
-      ["quiz", "results"].includes(view) &&
-      this.state.currentQuizId
-    ) {
+    if (["quiz", "results"].includes(view) && this.state.currentQuizId) {
       const found = await this.ensureQuizContextFromId(
         this.state.currentQuizId
       );
@@ -2009,7 +2037,9 @@ export const learnerCore = {
   },
 
   getRouteTransitionDuration() {
-    return this.prefersReducedRouteMotion() ? 1 : this.routeTransitionDurationMs;
+    return this.prefersReducedRouteMotion()
+      ? 1
+      : this.routeTransitionDurationMs;
   },
 
   wait(ms) {
@@ -2106,8 +2136,9 @@ export const learnerCore = {
     const isLoadingRequest = idToShow === "loading-view";
     const hasPendingLoading =
       !!this.pendingLoadingTimer || !!this.pendingLoadingResolve;
-    const hasActiveRouteTransition =
-      document.body.classList.contains("route-transitioning");
+    const hasActiveRouteTransition = document.body.classList.contains(
+      "route-transitioning"
+    );
 
     if (!isLoadingRequest && (hasPendingLoading || hasActiveRouteTransition)) {
       ++this.routeTransitionSequence;
@@ -2187,8 +2218,7 @@ export const learnerCore = {
         badge: "Pending Activation",
         badgeTone: "warning",
         title: "Access Restricted",
-        message:
-          "The account has no active subscription",
+        message: "The account has no active subscription",
         identityStatus: "Email Verified",
         identityTone: "success",
       },

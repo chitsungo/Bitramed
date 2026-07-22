@@ -53,7 +53,9 @@ function buildDialogShell({
 
   actions.append(cancelButton, submitButton);
   form.append(fields, actions);
-  panel.append(heading, copy, form);
+  panel.appendChild(heading);
+  if (message) panel.appendChild(copy);
+  panel.appendChild(form);
   overlay.appendChild(panel);
 
   return {
@@ -225,7 +227,6 @@ export function quizSettingsDialog({
             <span id="negative-marking-tooltip" class="dialog-info-tooltip" role="tooltip">Correct answers earn 1 point. Wrong answers lose 1 point. Unanswered questions score 0.</span>
           </span>
         </div>
-        <span class="dialog-setting-note">Apply a 1-point penalty for each wrong answer.</span>
       </div>
       <label class="dialog-switch">
         <input class="dialog-switch-input" type="checkbox" aria-label="Toggle negative marking">
