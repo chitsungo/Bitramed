@@ -1633,21 +1633,27 @@ export const learnerFeatures = {
     }
   },
 
-  showFatalLoadError(message) {
+  showFatalLoadError() {
     this.showOnly("loading-view");
     if (!this.dom.loadingView) return;
+    this.dom.loadingView.setAttribute("aria-busy", "false");
     this.dom.loadingView.innerHTML = `
-      <div class="result-card incorrect">
-        <div class="result-top">
-          <span>Database Error</span>
-          <span class="result-status incorrect-text">Load failed</span>
-        </div>
-        <div>${this.escapeHtml(message)}</div>
-        <div class="explanation">
-          <strong>Check:</strong> Supabase URL, anon key, RLS policies, and view permissions.
-        </div>
+      <div class="load-error-card" role="alert">
+        <h2>Couldn't connect</h2>
+        <p>Check your internet connection and try again.</p>
+        <button id="btn-retry-load" class="load-error-retry-btn" type="button">Retry</button>
       </div>
     `;
+
+    document
+      .getElementById("btn-retry-load")
+      ?.addEventListener("click", (event) => {
+        const retryButton = event.currentTarget;
+        retryButton.disabled = true;
+        retryButton.textContent = "Retrying…";
+        this.dom.loadingView.setAttribute("aria-busy", "true");
+        window.location.reload();
+      });
   },
 
   escapeHtml(value) {
