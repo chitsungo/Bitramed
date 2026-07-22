@@ -58,9 +58,16 @@
       </header>
 
       <main class="main-wrap">
-        <section id="admin-loading-view" class="panel">
-          <div class="spinner"></div>
-          <p class="muted centered">Loading admin dashboard...</p>
+        <section
+          id="admin-loading-view"
+          class="loading-view"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div class="loading-view-stage">
+            <div class="loader" aria-hidden="true"></div>
+            <p class="loading-view-copy">Loading admin workspace</p>
+          </div>
         </section>
 
         <section
@@ -148,7 +155,7 @@
             </div>
 
             <div class="dashboard-summary-strip admin-summary-strip">
-              <div class="dashboard-summary-cell">
+              <div class="app-surface-card dashboard-summary-cell">
                 <div
                   id="admin-menu-active-users"
                   class="dashboard-summary-value"
@@ -157,20 +164,20 @@
                 </div>
                 <div class="dashboard-summary-key">Active Users</div>
               </div>
-              <div class="dashboard-summary-cell">
+              <div class="app-surface-card dashboard-summary-cell">
                 <div id="admin-menu-attempts" class="dashboard-summary-value">
                   0
                 </div>
                 <div class="dashboard-summary-key">Attempts</div>
               </div>
-              <div class="dashboard-summary-cell">
+              <div class="app-surface-card dashboard-summary-cell">
                 <div
                   id="admin-menu-average"
                   class="dashboard-summary-value good"
                 >
                   0%
                 </div>
-                <div class="dashboard-summary-key">Avg. Score</div>
+                <div class="dashboard-summary-key">Combined Avg.</div>
               </div>
             </div>
 

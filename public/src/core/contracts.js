@@ -87,6 +87,10 @@
  * @property {number} averagePercentage
  * @property {number} totalAttempts
  * @property {number} quizzesDone
+ * @property {number} normalAttempts
+ * @property {number} normalAveragePercentage
+ * @property {number} examAttempts
+ * @property {number} examAveragePercentage
  * @property {number} bestPercentage
  * @property {string} strongestArea
  * @property {string} weakestArea
@@ -100,6 +104,7 @@
  * @property {string} displayName
  * @property {string} area
  * @property {string} mode
+ * @property {"quiz" | "past_paper"} assessmentKind
  * @property {number} percentage
  * @property {number} score
  * @property {number} totalQuestions
@@ -110,7 +115,7 @@
  * @typedef {Object} AdminStatsViewModel
  * @property {string} menuLead
  * @property {{ activeUsers: number, totalAttempts: number, averagePercentage: number }} menuSummary
- * @property {{ totalUsers: number, totalQuizzesDone: number, averagePercentage: number, engagementRate: number }} statsSummary
+ * @property {{ totalUsers: number, totalQuizzesDone: number, normalAttempts: number, examAttempts: number, normalAveragePercentage: number, examAveragePercentage: number, averagePercentage: number, engagementRate: number }} statsSummary
  * @property {{ active: number, expired: number, blocked: number, noAccess: number, totalTracked: number, activeRate: number, backlog: number }} accessSummary
  * @property {Array<AdminKpiCard>} pulseCards
  * @property {Array<{ label: string, value: number, displayValue: string, note: string }>} operatingRows

@@ -58,9 +58,16 @@
       </header>
 
       <main class="main-wrap">
-        <section id="admin-loading-view" class="panel">
-          <div class="spinner"></div>
-          <p class="muted centered">Loading admin dashboard...</p>
+        <section
+          id="admin-loading-view"
+          class="loading-view"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div class="loading-view-stage">
+            <div class="loader" aria-hidden="true"></div>
+            <p class="loading-view-copy">Loading admin workspace</p>
+          </div>
         </section>
 
         <section
@@ -130,7 +137,7 @@
             <!-- ── KPI Strip ───────────────────────────────────── -->
             <div class="stats-kpi-strip">
 
-              <div class="stats-kpi-card">
+              <div class="app-surface-card stats-kpi-card">
                 <div class="stats-kpi-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -145,7 +152,7 @@
                 </div>
               </div>
 
-              <div class="stats-kpi-card stats-kpi-card--blue">
+              <div class="app-surface-card stats-kpi-card stats-kpi-card--blue">
                 <div class="stats-kpi-icon stats-kpi-icon--blue" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -153,11 +160,11 @@
                 </div>
                 <div class="stats-kpi-body">
                   <div id="admin-stats-completed" class="stats-kpi-value">0</div>
-                  <div class="stats-kpi-label">Quizzes Completed</div>
+                  <div class="stats-kpi-label">Assessments Completed</div>
                 </div>
               </div>
 
-              <div class="stats-kpi-card stats-kpi-card--green">
+              <div class="app-surface-card stats-kpi-card stats-kpi-card--green">
                 <div class="stats-kpi-icon stats-kpi-icon--green" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="20" x2="18" y2="10"/>
@@ -167,11 +174,11 @@
                 </div>
                 <div class="stats-kpi-body">
                   <div id="admin-stats-average" class="stats-kpi-value good">0%</div>
-                  <div class="stats-kpi-label">Average Score</div>
+                  <div class="stats-kpi-label">Combined Average</div>
                 </div>
               </div>
 
-              <div class="stats-kpi-card stats-kpi-card--amber">
+              <div class="app-surface-card stats-kpi-card stats-kpi-card--amber">
                 <div class="stats-kpi-icon stats-kpi-icon--amber" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
@@ -296,7 +303,7 @@
             <!-- ── Learners to Review ─────────────────────────── -->
             <section class="admin-flow-section">
               <div class="browse-section-label">
-                <span class="browse-section-title">Learners to Review</span>
+                <span class="browse-section-title">Learner Assessment Breakdown</span>
                 <span
                   id="admin-user-section-count"
                   class="browse-section-count"

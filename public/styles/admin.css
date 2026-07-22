@@ -19,34 +19,22 @@ body.admin-page {
   --admin-shadow: var(--shadow-soft);
 
   /* Semantic status colors */
-  --admin-green: #238b57;
-  --admin-green-bg: rgba(35, 139, 87, 0.08);
-  --admin-green-border: rgba(35, 139, 87, 0.18);
-  --admin-red: #ca4a4a;
-  --admin-red-bg: rgba(202, 74, 74, 0.08);
-  --admin-red-border: rgba(202, 74, 74, 0.18);
-  --admin-amber: #c8871e;
-  --admin-amber-bg: rgba(200, 135, 30, 0.08);
-  --admin-amber-border: rgba(200, 135, 30, 0.18);
-  --admin-blue: #3479cc;
-  --admin-blue-bg: rgba(52, 121, 204, 0.08);
-  --admin-blue-border: rgba(52, 121, 204, 0.18);
+  --admin-green: var(--success);
+  --admin-green-bg: color-mix(in srgb, var(--success) 10%, transparent);
+  --admin-green-border: color-mix(in srgb, var(--success) 24%, transparent);
+  --admin-red: var(--danger);
+  --admin-red-bg: color-mix(in srgb, var(--danger) 10%, transparent);
+  --admin-red-border: color-mix(in srgb, var(--danger) 24%, transparent);
+  --admin-amber: var(--warning);
+  --admin-amber-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+  --admin-amber-border: color-mix(in srgb, var(--warning) 24%, transparent);
+  --admin-blue: var(--accent-2);
+  --admin-blue-bg: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  --admin-blue-border: color-mix(in srgb, var(--accent-2) 24%, transparent);
 }
 
 body.admin-page.dark-mode {
   --admin-border-strong: rgba(255, 247, 236, 0.2);
-  --admin-green: #4ade80;
-  --admin-green-bg: rgba(74, 222, 128, 0.09);
-  --admin-green-border: rgba(74, 222, 128, 0.2);
-  --admin-red: #f87171;
-  --admin-red-bg: rgba(248, 113, 113, 0.09);
-  --admin-red-border: rgba(248, 113, 113, 0.2);
-  --admin-amber: #f59e0b;
-  --admin-amber-bg: rgba(245, 158, 11, 0.09);
-  --admin-amber-border: rgba(245, 158, 11, 0.2);
-  --admin-blue: #60a5fa;
-  --admin-blue-bg: rgba(96, 165, 250, 0.09);
-  --admin-blue-border: rgba(96, 165, 250, 0.2);
 }
 
 /* ── 2. Page / Shell Setup ────────────────────────────────── */
@@ -56,17 +44,17 @@ body.admin-page .app-shell {
 }
 
 body.admin-page .main-wrap {
-  width: min(980px, calc(100% - 2rem));
+  width: min(var(--content-max), calc(100% - 2rem));
   padding-top: 1.45rem;
   padding-bottom: 4.5rem;
 }
 
 body.admin-page[data-admin-page="stats"] .main-wrap {
-  width: min(1180px, calc(100% - 2.5rem));
+  width: min(var(--content-max), calc(100% - 2rem));
 }
 
 body.admin-page[data-admin-page="access"] .main-wrap {
-  width: min(1080px, calc(100% - 2.25rem));
+  width: min(var(--content-max), calc(100% - 2rem));
 }
 
 /* ── 3. Topbar Overrides ──────────────────────────────────── */
@@ -92,8 +80,8 @@ body.admin-page .brand-home-btn:focus-visible {
 }
 
 body.admin-page .brand-home-mark {
-  background: #201b16;
-  color: #fff6eb;
+  background: #2d261f;
+  color: #fff;
 }
 
 body.admin-page.dark-mode .brand-home-mark {
@@ -108,9 +96,9 @@ body.admin-page .topbar-user-name {
 }
 
 body.admin-page .topbar-user-pill {
-  background: var(--admin-surface-2);
+  background: var(--surface-strong);
   border-color: var(--admin-border);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
 }
 
 body.admin-page .topbar-user-pill:hover {
@@ -118,12 +106,8 @@ body.admin-page .topbar-user-pill:hover {
 }
 
 body.admin-page .topbar-user-avatar {
-  background: linear-gradient(
-    135deg,
-    rgba(32, 94, 91, 0.9),
-    rgba(16, 55, 53, 0.9)
-  );
-  color: var(--admin-green);
+  background: rgba(209, 235, 220, 0.5);
+  color: var(--accent);
 }
 
 body.admin-page #admin-signout-btn {
@@ -132,9 +116,9 @@ body.admin-page #admin-signout-btn {
   padding: 0;
   border-radius: 999px;
   border: 1px solid var(--admin-border);
-  background: var(--admin-surface-2);
+  background: var(--surface-strong);
   color: var(--admin-text-dim);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
 }
 
 body.admin-page #admin-signout-btn:hover,
@@ -247,8 +231,8 @@ body.admin-page .admin-page-title {
   color: var(--admin-text);
   letter-spacing: -0.02em;
   font-family: "Playfair Display", serif;
-  font-size: clamp(1.95rem, 5vw, 2.5rem);
-  line-height: 1.15;
+  font-size: clamp(2.2rem, 4.4vw, 3.35rem);
+  line-height: 1.03;
 }
 
 body.admin-page .dashboard-greeting-name {
@@ -3338,4 +3322,120 @@ body.admin-page[data-admin-page="stats"]
   );
   background: color-mix(in srgb, var(--admin-amber) 6%, transparent);
   color: color-mix(in srgb, var(--admin-amber) 72%, var(--admin-text-mute) 28%);
+}
+
+/* Shared learner/admin surface alignment */
+body.admin-page .dashboard-summary-cell,
+body.admin-page .app-surface-card.admin-metric-card,
+body.admin-page .app-surface-card.admin-signal-card,
+body.admin-page[data-admin-page="stats"] .stats-kpi-card,
+body.admin-page .admin-story-card,
+body.admin-page .admin-data-list {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--panel);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(14px);
+}
+
+body.admin-page .app-surface-card.admin-metric-card,
+body.admin-page .app-surface-card.admin-signal-card {
+  padding: 1.2rem;
+}
+
+body.admin-page .admin-metric-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+body.admin-page .admin-metric-marker {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--admin-card-accent, var(--accent)) 26%,
+    var(--border) 74%
+  );
+  border-radius: 0.72rem;
+  background: color-mix(
+    in srgb,
+    var(--admin-card-accent, var(--accent)) 10%,
+    var(--surface-strong) 90%
+  );
+  color: var(--admin-card-accent, var(--accent));
+  font-family: "DM Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+body.admin-page .admin-assessment-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+body.admin-page .admin-assessment-metric {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.35rem 0.65rem;
+  border-right: 1px solid var(--border-soft);
+}
+
+body.admin-page .admin-assessment-metric:last-child {
+  border-right: 0;
+}
+
+body.admin-page .admin-assessment-metric-label,
+body.admin-page .admin-assessment-metric-note {
+  color: var(--ink-light);
+  font-family: "DM Mono", monospace;
+  font-size: 0.58rem;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.admin-page .admin-assessment-metric-value {
+  color: var(--ink);
+  font-family: "Playfair Display", serif;
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
+body.admin-page .admin-assessment-metric--normal .admin-assessment-metric-value {
+  color: var(--admin-blue);
+}
+
+body.admin-page .admin-assessment-metric--exam .admin-assessment-metric-value {
+  color: var(--admin-amber);
+}
+
+body.admin-page .admin-assessment-metric--combined .admin-assessment-metric-value {
+  color: var(--admin-green);
+}
+
+@media (max-width: 560px) {
+  body.admin-page .admin-assessment-breakdown {
+    gap: 0;
+    padding: 0.55rem 0.25rem;
+  }
+
+  body.admin-page .admin-assessment-metric {
+    padding-inline: 0.45rem;
+  }
+
+  body.admin-page .admin-assessment-metric-note {
+    letter-spacing: 0;
+    text-transform: none;
+  }
 }

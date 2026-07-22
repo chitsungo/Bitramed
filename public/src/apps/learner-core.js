@@ -40,6 +40,7 @@ export const learnerCore = {
     attempts: [],
     attemptsSignature: "",
     attemptsByQuizId: {},
+    pastPaperAttempts: [],
     userStats: null,
     accountSummary: null,
     quizAttemptSummariesById: {},
@@ -224,6 +225,7 @@ export const learnerCore = {
       quizMap: this.state.quizMap,
       quizDetailsById: this.state.quizDetailsById,
       attempts: this.state.attempts,
+      pastPaperAttempts: this.state.pastPaperAttempts,
       moduleTypeCountsByModule: this.state.moduleTypeCountsByModule,
       pastPapers: this.state.pastPapers,
       searchIndexLoaded: this.state.search.indexLoaded,
@@ -309,12 +311,18 @@ export const learnerCore = {
       this.setAttemptsData(
         Array.isArray(snapshot?.attempts) ? snapshot.attempts : []
       );
+      this.setPastPaperAttemptsData?.(
+        Array.isArray(snapshot?.pastPaperAttempts)
+          ? snapshot.pastPaperAttempts
+          : []
+      );
       this.restoringAppDataCache = false;
 
       return (
         !!this.state.accessStatus ||
         !!this.state.levelList.length ||
-        !!this.state.attempts.length
+        !!this.state.attempts.length ||
+        !!this.state.pastPaperAttempts.length
       );
     } catch (error) {
       this.restoringAppDataCache = false;
@@ -1541,6 +1549,7 @@ export const learnerCore = {
     this.state.attempts = [];
     this.state.attemptsSignature = "";
     this.state.attemptsByQuizId = {};
+    this.state.pastPaperAttempts = [];
     this.state.userStats = null;
     this.state.activeQuestions = [];
     this.state.accountSummary = null;

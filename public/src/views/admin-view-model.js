@@ -163,6 +163,135 @@ function computeWeightedAverage(rows, valueField, weightField) {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
+function findMatchingRecord(record, rows = []) {
+  const tokens = new Set(collectIdentityTokens(record));
+  if (!tokens.size) return null;
+
+  return (
+    (rows || []).find((candidate) =>
+      collectIdentityTokens(candidate).some((token) => tokens.has(token))
+    ) || null
+  );
+}
+
+function buildUnifiedUserSummaries(
+  users = [],
+  pastPaperAttempts = [],
+  accessRows = []
+) {
+  const summaries = (users || []).map((user) => ({
+    ...user,
+    normal_attempts: toNumber(user?.total_attempts),
+    normal_assessments_done: toNumber(user?.quizzes_done),
+    normal_average_percentage: toNumber(user?.average_percentage),
+    exam_attempts: 0,
+    exam_percentage_total: 0,
+    exam_assessment_ids: new Set(),
+  }));
+
+  (pastPaperAttempts || []).forEach((attempt) => {
+    let summary = findMatchingRecord(attempt, summaries);
+
+    if (!summary) {
+      const accessRecord = findMatchingRecord(attempt, accessRows) || {};
+      summary = {
+        ...accessRecord,
+        user_id: attempt?.user_id || accessRecord?.user_id || "",
+        display_name: accessRecord?.display_name || "",
+        email: accessRecord?.email || "",
+        normal_attempts: 0,
+        normal_assessments_done: 0,
+        normal_average_percentage: 0,
+        exam_attempts: 0,
+        exam_percentage_total: 0,
+        exam_assessment_ids: new Set(),
+        best_percentage: 0,
+        strongest_area: "",
+        weakest_area: "",
+        latest_activity: "",
+      };
+      summaries.push(summary);
+    }
+
+    summary.exam_attempts += 1;
+    summary.exam_percentage_total += toNumber(attempt?.percentage);
+    if (attempt?.set_id || attempt?.setId) {
+      summary.exam_assessment_ids.add(attempt.set_id || attempt.setId);
+    }
+    summary.best_percentage = Math.max(
+      toNumber(summary.best_percentage),
+      toNumber(attempt?.percentage)
+    );
+
+    const currentLatest = new Date(summary.latest_activity || 0).getTime();
+    const examCompletedAt = new Date(attempt?.completed_at || 0).getTime();
+    if (examCompletedAt > currentLatest) {
+      summary.latest_activity = attempt.completed_at;
+    }
+  });
+
+  return summaries.map((summary) => {
+    const normalAttempts = toNumber(summary.normal_attempts);
+    const examAttempts = toNumber(summary.exam_attempts);
+    const totalAttempts = normalAttempts + examAttempts;
+    const examAverage = examAttempts
+      ? Math.round(toNumber(summary.exam_percentage_total) / examAttempts)
+      : 0;
+    const combinedAverage = totalAttempts
+      ? Math.round(
+          (toNumber(summary.normal_average_percentage) * normalAttempts +
+            toNumber(summary.exam_percentage_total)) /
+            totalAttempts
+        )
+      : 0;
+    const examAssessmentsDone = summary.exam_assessment_ids.size;
+
+    return {
+      ...summary,
+      exam_assessment_ids: undefined,
+      exam_percentage_total: undefined,
+      exam_average_percentage: examAverage,
+      exam_assessments_done: examAssessmentsDone,
+      total_attempts: totalAttempts,
+      quizzes_done:
+        toNumber(summary.normal_assessments_done) + examAssessmentsDone,
+      average_percentage: combinedAverage,
+      combined_average_percentage: combinedAverage,
+    };
+  });
+}
+
+function normalizePastPaperAttempts(
+  pastPaperAttempts = [],
+  users = [],
+  accessRows = []
+) {
+  return (pastPaperAttempts || []).map((attempt) => {
+    const identity =
+      findMatchingRecord(attempt, users) ||
+      findMatchingRecord(attempt, accessRows) ||
+      {};
+
+    return {
+      ...attempt,
+      user_id: attempt?.user_id || identity?.user_id || "",
+      display_name: identity?.display_name || identity?.displayName || "",
+      email: identity?.email || "",
+      quiz_title: toText(
+        attempt?.quiz_title || attempt?.title,
+        "Past Paper"
+      ),
+      area: toText(attempt?.area || attempt?.topic_label, "Past Papers"),
+      level: toText(attempt?.level || attempt?.year_label, ""),
+      mode: "exam",
+      assessment_kind: "past_paper",
+      total_questions: toNumber(
+        attempt?.total_questions || attempt?.total_marks
+      ),
+    };
+  });
+}
+
 function buildCourseAnalyticsFromAttempts(attempts = []) {
   const courseMap = new Map();
 
@@ -183,7 +312,8 @@ function buildCourseAnalyticsFromAttempts(attempts = []) {
     const entry = courseMap.get(area);
     entry.totalAttempts += 1;
     entry.percentageTotal += toNumber(attempt?.percentage);
-    collectIdentityTokens(attempt).forEach((token) => entry.uniqueUsers.add(token));
+    const identityToken = collectIdentityTokens(attempt)[0];
+    if (identityToken) entry.uniqueUsers.add(identityToken);
     entry.bestUserAverage = Math.max(entry.bestUserAverage, toNumber(attempt?.percentage));
   });
 
@@ -338,13 +468,35 @@ export function buildAdminStatsViewModel({
   courses = [],
   users = [],
   recent = [],
+  pastPaperAttempts = [],
   accessRows = [],
   currentUser = null
 } = {}) {
+  const unifiedUsers = buildUnifiedUserSummaries(
+    users,
+    pastPaperAttempts,
+    accessRows
+  );
+  const examRecent = normalizePastPaperAttempts(
+    pastPaperAttempts,
+    unifiedUsers,
+    accessRows
+  );
+  const combinedRecent = [
+    ...(recent || []).map((attempt) => ({
+      ...attempt,
+      assessment_kind: attempt?.assessment_kind || "quiz",
+    })),
+    ...examRecent,
+  ].sort(
+    (a, b) =>
+      new Date(b?.completed_at || 0).getTime() -
+      new Date(a?.completed_at || 0).getTime()
+  );
   const statsScope = buildStatsScope({
     accessRows,
-    users,
-    recent,
+    users: unifiedUsers,
+    recent: combinedRecent,
     currentUser
   });
   const statsUsers = statsScope.users;
@@ -368,12 +520,25 @@ export function buildAdminStatsViewModel({
 
   const totalUsers = statsActiveAccessRows.length;
   const engagedUsers = statsUsers.filter((user) => toNumber(user.total_attempts) > 0).length;
+  const normalAttempts = sumField(statsUsers, "normal_attempts");
+  const examAttempts = sumField(statsUsers, "exam_attempts");
   const totalAttempts = sumField(statsUsers, "total_attempts");
-  const totalQuizzesDone = sumField(statsUsers, "quizzes_done");
+  const normalAssessmentsDone = sumField(statsUsers, "normal_assessments_done");
+  const examAssessmentsDone = sumField(statsUsers, "exam_assessments_done");
+  const totalAssessmentsDone = normalAssessmentsDone + examAssessmentsDone;
+  const normalAveragePercentage = computeWeightedAverage(
+    statsUsers,
+    "normal_average_percentage",
+    "normal_attempts"
+  );
+  const examAveragePercentage = computeWeightedAverage(
+    statsUsers,
+    "exam_average_percentage",
+    "exam_attempts"
+  );
   const averagePercentage = computeWeightedAverage(statsUsers, "average_percentage", "total_attempts");
   const engagementRate = totalUsers ? Math.round((engagedUsers / totalUsers) * 100) : 0;
   const inactiveUsers = Math.max(totalUsers - engagedUsers, 0);
-  const attemptsPerLearner = engagedUsers ? Math.round(totalAttempts / engagedUsers) : 0;
   const courseSpread = strongestCourse && weakestCourse
     ? Math.max(0, toNumber(strongestCourse.average_percentage) - toNumber(weakestCourse.average_percentage))
     : 0;
@@ -395,10 +560,13 @@ export function buildAdminStatsViewModel({
         : "The platform is live, but there is not enough active learner data yet to surface a lead story.";
 
   const executiveStoryBody = totalUsers
-    ? `${engagedUsers} of ${totalUsers} active learner accounts have recorded activity, with ${averagePercentage}% average performance across ${totalAttempts} saved attempts. ${inactiveUsers ? `The remaining ${inactiveUsers} active accounts have not logged a first attempt yet.` : "Every active learner has some recorded activity."} ${mostActiveUser ? `${toText(mostActiveUser.display_name || mostActiveUser.email, "A learner")} currently leads activity volume with ${toNumber(mostActiveUser.total_attempts)} attempts.` : ""}`
+    ? `${engagedUsers} of ${totalUsers} active learner accounts have recorded activity, with a ${averagePercentage}% combined average across ${normalAttempts} normal quiz and ${examAttempts} Past Paper attempts. ${inactiveUsers ? `The remaining ${inactiveUsers} active accounts have not logged a first attempt yet.` : "Every active learner has some recorded activity."} ${mostActiveUser ? `${toText(mostActiveUser.display_name || mostActiveUser.email, "A learner")} currently leads activity volume with ${toNumber(mostActiveUser.total_attempts)} attempts.` : ""}`
     : "No active learner activity has been recorded yet.";
 
   return {
+    userSummaries: statsUsers,
+    scopedAccessRows: statsScope.accessRows,
+    activeAccessRows: statsActiveAccessRows,
     menuLead: highestUser
       ? `${topLearnerName} leads the active learner pool at ${toNumber(highestUser.average_percentage)}% average.`
       : totalUsers
@@ -411,7 +579,11 @@ export function buildAdminStatsViewModel({
     },
     statsSummary: {
       totalUsers,
-      totalQuizzesDone,
+      totalQuizzesDone: totalAssessmentsDone,
+      normalAttempts,
+      examAttempts,
+      normalAveragePercentage,
+      examAveragePercentage,
       averagePercentage,
       engagementRate
     },
@@ -421,6 +593,8 @@ export function buildAdminStatsViewModel({
       chips: [
         `${totalUsers} active accounts`,
         `${engagedUsers}/${totalUsers || 0} engaged`,
+        `${normalAttempts} normal attempts`,
+        `${examAttempts} exam attempts`,
         strongestCourse && totalUsers ? `Leader ${strongestCourseName}` : "",
         highestUser ? `Top learner ${topLearnerName}` : ""
       ].filter(Boolean)
@@ -429,60 +603,58 @@ export function buildAdminStatsViewModel({
     accessBuckets: getAccessBuckets(accessRows),
     pulseCards: [
       {
+        label: "Normal Quizzes",
+        value: `${normalAveragePercentage}%`,
+        note: `${normalAttempts} attempts across ${normalAssessmentsDone} completed quizzes`,
+        tone: "blue",
+        marker: "N",
+      },
+      {
+        label: "Past Paper Exams",
+        value: `${examAveragePercentage}%`,
+        note: `${examAttempts} attempts across ${examAssessmentsDone} completed exams`,
+        tone: "amber",
+        marker: "E",
+      },
+      {
+        label: "Combined Average",
+        value: `${averagePercentage}%`,
+        note: `Attempt-weighted across all ${totalAttempts} saved results`,
+        tone: "green",
+        marker: "C",
+      },
+      {
         label: "Engagement",
         value: `${engagementRate}%`,
         note: `${engagedUsers} engaged and ${inactiveUsers} active without history`,
-        tone: engagementRate >= 75 ? "green" : engagementRate >= 50 ? "blue" : "amber"
-      },
-      {
-        label: "Attempts Per Learner",
-        value: String(attemptsPerLearner),
-        note: `${totalAttempts} saved attempts across ${Math.max(engagedUsers, 1)} engaged active learners`,
-        tone: totalAttempts ? "blue" : "accent"
-      },
-      {
-        label: "Active Roster",
-        value: String(totalUsers),
-        note: `${engagedUsers} active learners with saved history`,
-        tone: totalUsers ? "accent" : "amber"
-      },
-      {
-        label: "Course Spread",
-        value: `${courseSpread} pts`,
-        note: strongestCourse && weakestCourse
-          ? `${strongestCourseName} leads ${weakestCourseName}`
-          : "Not enough active-attempt course data to compare leaders and laggards",
-        tone: strongestCourse && weakestCourse
-          ? courseSpread >= 15
-            ? "amber"
-            : "green"
-          : "accent"
+        tone: engagementRate >= 75 ? "green" : engagementRate >= 50 ? "blue" : "amber",
+        marker: "A",
       }
     ],
     operatingRows: [
       {
+        label: "Normal Quiz Average",
+        value: normalAveragePercentage,
+        displayValue: `${normalAveragePercentage}%`,
+        note: `${normalAttempts} completed attempts`
+      },
+      {
+        label: "Past Paper Average",
+        value: examAveragePercentage,
+        displayValue: `${examAveragePercentage}%`,
+        note: `${examAttempts} completed attempts`
+      },
+      {
+        label: "Combined Average",
+        value: averagePercentage,
+        displayValue: `${averagePercentage}%`,
+        note: "Attempt-weighted across both assessment sections"
+      },
+      {
         label: "Engagement",
         value: engagementRate,
         displayValue: `${engagementRate}%`,
-        note: "Active users with quiz history"
-      },
-      {
-        label: "Average Score",
-        value: averagePercentage,
-        displayValue: `${averagePercentage}%`,
-        note: "Attempt-weighted average across active learners"
-      },
-      {
-        label: "Active Learners",
-        value: totalUsers,
-        displayValue: String(totalUsers),
-        note: "Accounts with active access in scope"
-      },
-      {
-        label: "Attempts per Learner",
-        value: attemptsPerLearner,
-        displayValue: String(attemptsPerLearner),
-        note: "Average activity per engaged active learner"
+        note: "Active users with quiz or exam history"
       }
     ],
     signals: [
@@ -492,7 +664,7 @@ export function buildAdminStatsViewModel({
           ? "First attempts are still pending"
           : "All active learners have activity",
         inactiveUsers
-          ? `${inactiveUsers} active accounts still have no saved quiz history.`
+          ? `${inactiveUsers} active accounts still have no saved assessment history.`
           : "Every active learner currently contributes to the performance signal.",
         inactiveUsers ? String(inactiveUsers) : "Live",
         inactiveUsers ? "amber" : "green"
@@ -543,13 +715,19 @@ export function buildAdminStatsViewModel({
       bestUserAverage: toNumber(course.best_user_average),
       standing: index === 0 ? "Leading course" : index === sortedCourses.length - 1 ? "Needs review" : "Mid-range performer"
     })),
-    learnerWatchlist: watchlist.slice(0, 8).map((user, index) => ({
+    learnerWatchlist: watchlist.map((user, index) => ({
       priority: index + 1,
       displayName: toText(user.display_name || user.email, "User"),
       email: toText(user.email, "No email"),
       averagePercentage: toNumber(user.average_percentage),
       totalAttempts: toNumber(user.total_attempts),
       quizzesDone: toNumber(user.quizzes_done),
+      normalAttempts: toNumber(user.normal_attempts),
+      normalAssessmentsDone: toNumber(user.normal_assessments_done),
+      normalAveragePercentage: toNumber(user.normal_average_percentage),
+      examAttempts: toNumber(user.exam_attempts),
+      examAssessmentsDone: toNumber(user.exam_assessments_done),
+      examAveragePercentage: toNumber(user.exam_average_percentage),
       bestPercentage: toNumber(user.best_percentage),
       strongestArea: toText(user.strongest_area, "No data"),
       weakestArea: toText(user.weakest_area, "No data"),
@@ -561,13 +739,20 @@ export function buildAdminStatsViewModel({
           : "Stable"
     })),
     recentActivity: statsRecent.slice(0, 15).map((attempt) => ({
-      quizTitle: toText(attempt.quiz_title, "Quiz"),
+      quizTitle: toText(
+        attempt.quiz_title,
+        attempt.assessment_kind === "past_paper" ? "Past Paper" : "Quiz"
+      ),
       displayName: toText(attempt.display_name || attempt.email, "User"),
       area: toText(attempt.area, "Unknown course"),
       mode: toText(attempt.mode, "study"),
+      assessmentKind: toText(attempt.assessment_kind, "quiz"),
       percentage: toNumber(attempt.percentage),
       score: toNumber(attempt.score),
       totalQuestions: toNumber(attempt.total_questions),
+      durationMinutes: toNumber(attempt.duration_minutes) || null,
+      negativeMarking: attempt.negative_marking === true,
+      timedOut: attempt.timed_out === true,
       completedAt: attempt.completed_at || ""
     })),
     topRankedUsers: sortedUsersByAverage
@@ -580,6 +765,10 @@ export function buildAdminStatsViewModel({
         averagePercentage: toNumber(user.average_percentage),
         totalAttempts: toNumber(user.total_attempts),
         quizzesDone: toNumber(user.quizzes_done),
+        normalAttempts: toNumber(user.normal_attempts),
+        normalAveragePercentage: toNumber(user.normal_average_percentage),
+        examAttempts: toNumber(user.exam_attempts),
+        examAveragePercentage: toNumber(user.exam_average_percentage),
         bestPercentage: toNumber(user.best_percentage),
         strongestArea: toText(user.strongest_area, "No data"),
       })),

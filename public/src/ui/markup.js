@@ -5,9 +5,12 @@ export function buildEmptyStateMarkup(message, escapeHtml) {
 export function buildMetricCardMarkup(card, escapeHtml, className = "admin-metric-card") {
   return `
     <article class="${escapeHtml(
-      `${className}${card?.tone ? ` admin-metric-card--${card.tone}` : ""}`
+      `app-surface-card ${className}${card?.tone ? ` admin-metric-card--${card.tone}` : ""}`
     )}">
-      <span class="admin-metric-label">${escapeHtml(card.label || "")}</span>
+      <span class="admin-metric-identity">
+        ${card?.marker ? `<span class="admin-metric-marker" aria-hidden="true">${escapeHtml(card.marker)}</span>` : ""}
+        <span class="admin-metric-label">${escapeHtml(card.label || "")}</span>
+      </span>
       <span class="admin-metric-value">${escapeHtml(card.value || "")}</span>
       <span class="admin-metric-note">${escapeHtml(card.note || "")}</span>
     </article>

@@ -493,14 +493,14 @@ export function renderLearnerShell() {
           <p id="account-page-subtitle" class="browse-page-subtitle">Your learning progress and quiz history</p>
         </div>
         <div id="account-empty-state" class="account-empty-state" hidden>
-          <p class="muted">No quiz history yet. Complete a quiz to see your stats here.</p>
+          <p class="muted">No assessment history yet. Complete a quiz or Past Paper exam to see your stats here.</p>
         </div>
         <div id="account-content">
           <div id="account-overview-grid" class="account-overview-grid"></div>
           <div class="account-section">
             <div class="section-head compact">
               <div>
-                <h2>Mode Performance</h2>
+                <h2>Assessment Performance</h2>
               </div>
             </div>
             <div id="account-mode-grid" class="account-mode-grid"></div>
@@ -516,7 +516,7 @@ export function renderLearnerShell() {
           <div class="account-section">
             <div class="section-head compact">
               <div>
-                <h2>Recent Quiz Activity</h2>
+                <h2>Recent Assessment Activity</h2>
               </div>
             </div>
             <div id="account-recent-list" class="account-recent-list"></div>

@@ -332,13 +332,14 @@ export const adminApp = {
   async loadDashboard() {
     const payload = await loadAdminDashboardData(this.getSupabase());
     this.state.accessRows = payload.accessRows || [];
-    this.state.statsUsers = payload.users || [];
     this.state.statsModel = buildAdminStatsViewModel({
       ...payload,
       currentUser: this.state.currentUser,
     });
+    this.state.statsUsers = this.state.statsModel?.userSummaries || [];
     this.renderDashboard();
     this.applyAdminRoute();
+    this.dom.loadingView.setAttribute("aria-busy", "false");
     this.dom.loadingView.hidden = true;
     this.dom.dashboardView.hidden = false;
   },
@@ -760,9 +761,7 @@ export const adminApp = {
   },
 
   renderMenuActiveSilentList() {
-    const activeRows = (this.state.accessRows || []).filter(
-      (r) => r.status === "active"
-    );
+    const activeRows = this.state.statsModel?.activeAccessRows || [];
 
     const activeWithActivity = new Set(
       (this.state.statsUsers || [])
@@ -1254,6 +1253,7 @@ export const adminApp = {
   },
 
   showDenied(message) {
+    this.dom.loadingView?.setAttribute("aria-busy", "false");
     this.dom.loadingView.hidden = true;
     this.dom.deniedView.hidden = false;
     const note =

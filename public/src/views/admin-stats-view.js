@@ -41,7 +41,7 @@ function buildSignalCardsMarkup(
     .map(
       (signal) => `
         <article class="${escapeHtml(
-          `${className}${signal?.tone ? ` admin-signal-card--${signal.tone}` : ""}`
+          `app-surface-card ${className}${signal?.tone ? ` admin-signal-card--${signal.tone}` : ""}`
         )}">
           <div class="admin-signal-head">
             <span class="admin-signal-label">${escapeHtml(
@@ -97,6 +97,7 @@ function buildListRowMarkup(
     title = "",
     subtitle = "",
     score = "",
+    detailsMarkup = "",
     facts = [],
     notes = [],
   },
@@ -133,9 +134,49 @@ function buildListRowMarkup(
             : ""
         }
       </div>
+      ${detailsMarkup}
       ${buildFactListMarkup(facts, escapeHtml)}
       ${buildRowNotesMarkup(notes, escapeHtml)}
     </li>
+  `;
+}
+
+function buildAssessmentBreakdownMarkup(user, escapeHtml) {
+  const sections = [
+    {
+      key: "normal",
+      label: "Normal",
+      average: user.normalAveragePercentage,
+      attempts: user.normalAttempts,
+    },
+    {
+      key: "exam",
+      label: "Exam",
+      average: user.examAveragePercentage,
+      attempts: user.examAttempts,
+    },
+    {
+      key: "combined",
+      label: "Combined",
+      average: user.averagePercentage,
+      attempts: user.totalAttempts,
+    },
+  ];
+
+  return `
+    <div class="admin-assessment-breakdown" aria-label="Assessment averages">
+      ${sections
+        .map(
+          (section) => `
+            <div class="admin-assessment-metric admin-assessment-metric--${escapeHtml(section.key)}" data-assessment-source="${escapeHtml(section.key)}">
+              <span class="admin-assessment-metric-label">${escapeHtml(section.label)}</span>
+              <strong class="admin-assessment-metric-value">${escapeHtml(String(section.average))}%</strong>
+              <span class="admin-assessment-metric-note">${escapeHtml(String(section.attempts))} attempt${section.attempts === 1 ? "" : "s"}</span>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
   `;
 }
 
@@ -176,7 +217,9 @@ function buildRankedUsersMarkup(rankedUsers, escapeHtml) {
           score: `${user.averagePercentage}%`,
           facts: [
             `${user.totalAttempts} attempts`,
-            `${user.quizzesDone} quizzes`,
+            `${user.quizzesDone} assessments`,
+            `Normal ${user.normalAveragePercentage}%`,
+            `Exam ${user.examAveragePercentage}%`,
             `Best ${user.bestPercentage}%`,
             user.strongestArea !== "No data"
               ? `Top area ${user.strongestArea}`
@@ -235,9 +278,9 @@ function buildLearnerWatchlistMarkup(
           title: user.displayName,
           subtitle: user.email,
           score: `${user.averagePercentage}%`,
+          detailsMarkup: buildAssessmentBreakdownMarkup(user, escapeHtml),
           facts: [
-            `${user.totalAttempts} attempts`,
-            `${user.quizzesDone} quizzes`,
+            `${user.quizzesDone} assessments completed`,
             `Best ${user.bestPercentage}%`,
             `Strongest ${user.strongestArea}`,
           ],
@@ -266,14 +309,30 @@ function buildRecentActivityMarkup(
         {
           rowClassName: "admin-activity-card",
           badgeMarkup: `<span class="admin-list-badge admin-list-badge-mode">${escapeHtml(
-            formatModeLabel(attempt.mode)
+            attempt.assessmentKind === "past_paper"
+              ? "Past Paper"
+              : formatModeLabel(attempt.mode)
           )}</span>`,
-          kicker: "Recent attempt",
+          kicker:
+            attempt.assessmentKind === "past_paper"
+              ? "Exam attempt"
+              : "Normal quiz attempt",
           title: attempt.quizTitle,
           subtitle: `${attempt.displayName} - ${attempt.area}`,
           score: `${attempt.percentage}%`,
           facts: [
             `${attempt.score}/${attempt.totalQuestions}`,
+            attempt.assessmentKind === "past_paper"
+              ? attempt.durationMinutes
+                ? `${attempt.durationMinutes} min`
+                : "No time limit"
+              : "",
+            attempt.assessmentKind === "past_paper"
+              ? attempt.negativeMarking
+                ? "Negative marking"
+                : "Standard marking"
+              : "",
+            attempt.timedOut ? "Timed out" : "",
             formatDateTime(attempt.completedAt),
           ],
         },

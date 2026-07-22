@@ -299,12 +299,15 @@ const learnerPastPaperUnits = [
 const learnerPastPaperReview = {
   attempt: {
     setId: "past-paper-set-1",
-    score: 1,
+    score: 0,
     totalMarks: 2,
     correct: 1,
     wrong: 1,
     unanswered: 0,
-    percentage: 50,
+    percentage: 0,
+    durationMinutes: 5,
+    negativeMarking: true,
+    timedOut: false,
   },
   units: [
     {
@@ -330,6 +333,30 @@ const learnerPastPaperReview = {
     },
   ],
 };
+
+const learnerPastPaperAttempts = [
+  {
+    id: "past_paper:1",
+    user_id: "user-1",
+    set_id: "past-paper-set-1",
+    level: "Year 1",
+    area: "Anatomy",
+    quiz_title: "Anatomy Past Paper 1",
+    assessment_kind: "past_paper",
+    section: "exam",
+    mode: "exam",
+    score: 1,
+    total_questions: 2,
+    correct_count: 1,
+    wrong_count: 1,
+    unanswered_count: 0,
+    percentage: 50,
+    duration_minutes: 5,
+    negative_marking: false,
+    timed_out: false,
+    completed_at: "2026-03-31T08:00:00Z",
+  },
+];
 
 const learnerAccountSummary = {
   attemptsCount: 2,
@@ -562,6 +589,78 @@ async function stubSupabase(
       is_admin: true,
     },
   ];
+  const adminPastPaperAttempts = [
+    {
+      attempt_id: 41,
+      user_id: "user-1",
+      set_id: "paper-anatomy-1",
+      quiz_title: "Anatomy Past Paper 1",
+      area: "Anatomy",
+      level: "Year 1",
+      mode: "exam",
+      assessment_kind: "past_paper",
+      score: 12,
+      total_questions: 20,
+      percentage: 60,
+      completed_at: "2026-03-31T07:00:00Z",
+    },
+    {
+      attempt_id: 42,
+      user_id: "user-1",
+      set_id: "paper-anatomy-2",
+      quiz_title: "Anatomy Past Paper 2",
+      area: "Anatomy",
+      level: "Year 1",
+      mode: "exam",
+      assessment_kind: "past_paper",
+      score: 16,
+      total_questions: 20,
+      percentage: 80,
+      completed_at: "2026-03-31T09:00:00Z",
+    },
+    {
+      attempt_id: 43,
+      user_id: "user-8",
+      set_id: "paper-physiology-1",
+      quiz_title: "Physiology Past Paper 1",
+      area: "Physiology",
+      level: "Year 1",
+      mode: "exam",
+      assessment_kind: "past_paper",
+      score: 20,
+      total_questions: 20,
+      percentage: 100,
+      completed_at: "2026-04-01T08:00:00Z",
+    },
+    {
+      attempt_id: 44,
+      user_id: "user-2",
+      set_id: "paper-expired-1",
+      quiz_title: "Expired Past Paper",
+      area: "Pharmacology",
+      level: "Year 1",
+      mode: "exam",
+      assessment_kind: "past_paper",
+      score: 18,
+      total_questions: 20,
+      percentage: 90,
+      completed_at: "2026-04-02T08:00:00Z",
+    },
+    {
+      attempt_id: 45,
+      user_id: "user-5",
+      set_id: "paper-admin-1",
+      quiz_title: "Admin Past Paper",
+      area: "Pathology",
+      level: "Year 1",
+      mode: "exam",
+      assessment_kind: "past_paper",
+      score: 20,
+      total_questions: 20,
+      percentage: 100,
+      completed_at: "2026-04-03T08:00:00Z",
+    },
+  ];
   const adminAccess = [
     {
       user_id: "user-1",
@@ -635,6 +734,16 @@ async function stubSupabase(
       block_reason: null,
       notes: "Newly activated",
     },
+    {
+      user_id: "user-8",
+      email: "examonly@example.com",
+      display_name: "Exam Only",
+      status: "active",
+      access_expires_at: "2026-05-10T08:00:00Z",
+      blocked_at: null,
+      block_reason: null,
+      notes: "Past Paper learner",
+    },
   ];
 
   await page.route(
@@ -657,6 +766,7 @@ async function stubSupabase(
         const learnerPastPaperExams = ${JSON.stringify(learnerPastPaperExams)};
         const learnerPastPaperUnits = ${JSON.stringify(learnerPastPaperUnits)};
         const learnerPastPaperReview = ${JSON.stringify(learnerPastPaperReview)};
+        const learnerPastPaperAttempts = ${JSON.stringify(learnerPastPaperAttempts)};
 
         const initialAuthState = {
           currentUser: ${JSON.stringify(
@@ -961,6 +1071,9 @@ async function stubSupabase(
                 if (name === "admin_recent_attempts") {
                   return Promise.resolve({ data: ${JSON.stringify(adminRecent)}, error: null });
                 }
+                if (name === "admin_past_paper_attempts") {
+                  return Promise.resolve({ data: ${JSON.stringify(adminPastPaperAttempts)}, error: null });
+                }
                 if (name === "admin_list_user_access") {
                   return Promise.resolve({ data: ${JSON.stringify(adminAccess)}, error: null });
                 }
@@ -1021,6 +1134,9 @@ async function stubSupabase(
                 }
                 if (name === "app_past_paper_attempt_review") {
                   return Promise.resolve({ data: clone(learnerPastPaperReview), error: null });
+                }
+                if (name === "app_past_paper_attempts_enriched") {
+                  return Promise.resolve({ data: clone(learnerPastPaperAttempts), error: null });
                 }
                 return Promise.resolve({ data: [], error: null });
               }
@@ -1563,9 +1679,26 @@ test("past paper exams use assessment settings for timer and negative marking", 
   await expect(page.locator("#past-paper-review-list")).toContainText(
     "Incorrect (-1)"
   );
+  const submitCalls = await readSupabaseCallLog(page);
+  const submitCall = submitCalls.find(
+    (call) => call.name === "app_submit_past_paper_attempt"
+  );
+  expect(submitCall?.params).toMatchObject({
+    p_set_id: "past-paper-set-1",
+    p_duration_minutes: 5,
+    p_negative_marking: true,
+    p_timed_out: false,
+  });
   await expect
     .poll(() => new URL(page.url()).searchParams.get("negative"))
     .toBe("1");
+
+  await page.goto(
+    "/past-papers/review/?attemptId=past-paper-attempt-1"
+  );
+  await expect(page.locator("#past-paper-review-view")).toBeVisible();
+  await expect(page.locator("#past-paper-review-score")).toHaveText("0/2");
+  await expect(page.locator("#past-paper-review-percent")).toHaveText("0%");
   await expectNoHorizontalOverflow(page);
 });
 
@@ -1839,11 +1972,53 @@ test("learner mobile access gate fits the viewport", async ({ page }) => {
   );
 });
 
+test("account stats combine normal quizzes and Past Paper exams", async ({
+  page,
+}) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true });
+  await page.goto("/account/");
+
+  await expect(page.locator("#account-view")).toBeVisible();
+  await expect(page.locator("#account-overview-grid")).toContainText(
+    "Combined Average"
+  );
+  await expect(page.locator("#account-overview-grid")).toContainText("67%");
+  await expect(
+    page.locator('[data-account-section="normal"]')
+  ).toContainText("76%");
+  await expect(
+    page.locator('[data-account-section="normal"]')
+  ).toContainText("2 attempts");
+  await expect(page.locator('[data-account-section="exam"]')).toContainText(
+    "50%"
+  );
+  await expect(page.locator('[data-account-section="exam"]')).toContainText(
+    "1 attempt"
+  );
+  await expect(
+    page.locator('[data-account-section="combined"]')
+  ).toContainText("67%");
+  await expect(
+    page.locator('[data-account-section="combined"]')
+  ).toContainText("3 attempts");
+  await expect(page.locator("#account-recent-list")).toContainText(
+    "Anatomy Past Paper 1"
+  );
+  await expect(page.locator("#account-recent-list")).toContainText(
+    "Past Paper Exam"
+  );
+});
+
 test("admin shell loads", async ({ page }) => {
   await stubSupabase(page, { signedIn: true });
   await page.goto("/JAK2V617F/");
   await expectCanonicalFavicon(page);
   await expect(page.locator("#admin-denied-view")).toBeVisible();
+  await expect(page.locator("#admin-loading-view")).toHaveClass(
+    /loading-view/
+  );
+  await expect(page.locator("#admin-loading-view .loader")).toHaveCount(1);
+  await expect(page.locator("#admin-loading-view .spinner")).toHaveCount(0);
 });
 
 test("admin overview promotes the silent cohort card", async ({ page }) => {
@@ -1874,11 +2049,11 @@ test("admin stats workspace renders executive sections", async ({ page }) => {
   await page.goto("/JAK2V617F/stats/");
   await expect(page.locator("#admin-stats-shell")).toBeVisible();
   await expect(page.locator("#admin-story-card")).toBeVisible();
-  await expect(page.locator("#admin-stats-users")).toHaveText("2");
-  await expect(page.locator("#admin-stats-completed")).toHaveText("6");
+  await expect(page.locator("#admin-stats-users")).toHaveText("3");
+  await expect(page.locator("#admin-stats-completed")).toHaveText("9");
   await expect(page.locator("#admin-stats-average")).toHaveText("81%");
   await expect(page.locator("#admin-recent-section-count")).toHaveText(
-    "1 recent attempts"
+    "4 recent attempts"
   );
   await expect(page.locator("#admin-user-list")).toContainText("Amina Ncube");
   await expect(page.locator("#admin-user-list")).not.toContainText(
@@ -1890,7 +2065,29 @@ test("admin stats workspace renders executive sections", async ({ page }) => {
   await expect(page.locator("#admin-user-list")).not.toContainText(
     "Owner Root"
   );
+  await expect(page.locator("#admin-user-list")).toContainText("Exam Only");
+  const aminaCard = page
+    .locator("#admin-user-list .admin-user-card")
+    .filter({ hasText: "Amina Ncube" });
+  await expect(aminaCard).toContainText("Normal");
+  await expect(aminaCard).toContainText("81%");
+  await expect(aminaCard).toContainText("Exam");
+  await expect(aminaCard).toContainText("70%");
+  await expect(aminaCard).toContainText("Combined");
+  await expect(aminaCard).toContainText("80%");
+  await expect(aminaCard).toContainText("16 attempts");
+  await expect(page.locator("#admin-overview-grid")).toContainText(
+    "Normal Quizzes"
+  );
+  await expect(page.locator("#admin-overview-grid")).toContainText(
+    "Past Paper Exams"
+  );
+  await expect(page.locator("#admin-overview-grid")).toContainText(
+    "Combined Average"
+  );
   await expect(page.locator("#admin-recent-list")).toContainText("Amina Ncube");
+  await expect(page.locator("#admin-recent-list")).toContainText("Exam Only");
+  await expect(page.locator("#admin-recent-list")).toContainText("Past Paper");
   await expect(page.locator("#admin-recent-list")).not.toContainText(
     "Tariro Dube"
   );
@@ -1905,7 +2102,7 @@ test("admin stats workspace renders executive sections", async ({ page }) => {
   ).toHaveCount(3);
   await expect(
     page.locator("#admin-course-grid .admin-course-card")
-  ).toHaveCount(1);
+  ).toHaveCount(2);
   const statsListSemantics = await page.evaluate(() =>
     [
       "admin-course-grid",
@@ -1966,6 +2163,16 @@ test("admin access workspace renders category menu", async ({ page }) => {
 test("admin mobile layouts stay inside the viewport", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, isAdmin: true, theme: "dark" });
   await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.goto("/JAK2V617F/");
+  await expect(page.locator("#admin-menu-main")).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectGridColumns(page, "#admin-overview-grid", 1);
+  await expectFirstCardFillsTrack(
+    page,
+    "#admin-overview-grid",
+    "#admin-overview-grid .admin-metric-card"
+  );
 
   await page.goto("/JAK2V617F/stats/");
   await expect(page.locator("#admin-stats-shell")).toBeVisible();

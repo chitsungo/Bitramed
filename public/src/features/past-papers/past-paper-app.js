@@ -968,7 +968,12 @@ export const pastPaperApp = {
         submitPastPaperAttempt(
           this.getSupabase(),
           setId,
-          this.getPastPaperAnswerMap()
+          this.getPastPaperAnswerMap(),
+          {
+            durationMinutes: pastPapers.durationMinutes,
+            negativeMarking: pastPapers.negativeMarking,
+            timedOut,
+          }
         ),
         12000,
         "Submitting past paper"
@@ -979,6 +984,7 @@ export const pastPaperApp = {
       await this.clearPastPaperDraft(setId);
       this.getPastPaperState().reviewsByAttemptId = {};
       await this.loadPastPaperYears(true);
+      await this.loadPersonalizationData?.();
       await this.navigate("past-paper-review", {
         attemptId,
         duration: pastPapers.durationMinutes || "",
@@ -1049,12 +1055,27 @@ export const pastPaperApp = {
     const correct = Number(attempt.correct || 0);
     const wrong = Number(attempt.wrong || 0);
     const unanswered = Number(attempt.unanswered || 0);
-    const score = pastPapers.negativeMarking ? correct - wrong : storedScore;
+    const hasPersistedSettings =
+      typeof attempt.negativeMarking === "boolean" ||
+      typeof attempt.negative_marking === "boolean";
+    const negativeMarking = hasPersistedSettings
+      ? attempt.negativeMarking === true || attempt.negative_marking === true
+      : pastPapers.negativeMarking;
+    const durationMinutes = hasPersistedSettings
+      ? Number(attempt.durationMinutes || attempt.duration_minutes || 0)
+      : Number(pastPapers.durationMinutes || 0);
+    pastPapers.negativeMarking = negativeMarking;
+    pastPapers.durationMinutes = durationMinutes || null;
+    const score =
+      !hasPersistedSettings && negativeMarking
+        ? correct - wrong
+        : storedScore;
     document.getElementById("past-paper-review-score").textContent =
       `${score}/${totalMarks}`;
-    const percentage = pastPapers.negativeMarking
-      ? Math.round((Math.max(score, 0) / Math.max(totalMarks, 1)) * 100)
-      : Number(attempt.percentage || 0);
+    const percentage =
+      !hasPersistedSettings && negativeMarking
+        ? Math.round((Math.max(score, 0) / Math.max(totalMarks, 1)) * 100)
+        : Number(attempt.percentage || 0);
     const percentNode = document.getElementById("past-paper-review-percent");
     percentNode.textContent = `${percentage}%`;
     percentNode.className = `results-score-pct ${this.getResultsPercentageTone?.(percentage) || "poor"}`;

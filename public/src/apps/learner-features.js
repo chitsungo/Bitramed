@@ -5,6 +5,7 @@ import {
   fetchAssessmentProgress,
   upsertAssessmentProgress,
 } from "../services/assessment-progress-service.js";
+import { fetchPastPaperAttempts } from "../services/past-paper-service.js";
 import { confirmDialog, quizSettingsDialog } from "../ui/dialog.js";
 
 export const learnerFeatures = {
@@ -142,13 +143,28 @@ export const learnerFeatures = {
     if (!userId) return;
 
     try {
-      const { data, error } = await this.withTimeout(
-        this.getSupabase().rpc("app_user_attempts_enriched"),
-        12000,
-        "Loading account stats"
-      );
+      const [quizResponse, pastPaperResponse] = await Promise.all([
+        this.withTimeout(
+          this.getSupabase().rpc("app_user_attempts_enriched"),
+          12000,
+          "Loading account stats"
+        ),
+        this.withTimeout(
+          fetchPastPaperAttempts(this.getSupabase()),
+          12000,
+          "Loading exam stats"
+        ),
+      ]);
+
+      const { data, error } = quizResponse;
 
       if (error) throw error;
+      if (
+        pastPaperResponse.error &&
+        !this.isRpcUnavailable(pastPaperResponse.error)
+      ) {
+        throw pastPaperResponse.error;
+      }
 
       const attempts = (data || []).map((row) => ({
         id: row.id,
@@ -174,7 +190,33 @@ export const learnerFeatures = {
         completedAt: row.completed_at || "",
       }));
 
+      const pastPaperAttempts = (
+        pastPaperResponse.error ? [] : pastPaperResponse.data || []
+      ).map((row) => ({
+        id: row.id || `past_paper:${row.attempt_id || ""}`,
+        userId: row.user_id,
+        setId: row.set_id,
+        level: row.level ? String(row.level).trim() : "",
+        area: row.area ? String(row.area).trim() : "Past Papers",
+        sub: "Past Papers",
+        quizTitle: row.quiz_title ? String(row.quiz_title).trim() : "Past Paper",
+        assessmentKind: "past_paper",
+        section: "exam",
+        mode: "exam",
+        score: Number(row.score || 0),
+        totalQuestions: Number(row.total_questions || 0),
+        correctCount: Number(row.correct_count || 0),
+        wrongCount: Number(row.wrong_count || 0),
+        unansweredCount: Number(row.unanswered_count || 0),
+        percentage: Number(row.percentage || 0),
+        durationMinutes: Number(row.duration_minutes || 0) || null,
+        negativeMarking: row.negative_marking === true,
+        timedOut: row.timed_out === true,
+        completedAt: row.completed_at || "",
+      }));
+
       this.setAttemptsData(attempts);
+      this.setPastPaperAttemptsData(pastPaperAttempts);
       (data || []).forEach((row) => {
         if (!row.level) return;
         this.registerQuizDescriptor({
@@ -237,6 +279,7 @@ export const learnerFeatures = {
       console.error("Personalization load error:", error);
       this.showToast("Could not load account stats.");
       this.setAttemptsData([]);
+      this.setPastPaperAttemptsData([]);
     }
   },
 
@@ -437,12 +480,40 @@ export const learnerFeatures = {
     this.state.attemptsSignature = attemptsSignature;
     this.state.attemptsByQuizId =
       this.groupAttemptsByQuizId(normalizedAttempts);
-    this.state.userStats = this.buildUserStats(normalizedAttempts);
+    this.state.userStats = this.buildUserStats(
+      normalizedAttempts,
+      this.state.pastPaperAttempts || []
+    );
 
     if (attemptsChanged && !this.restoringAppDataCache) {
       this.invalidateAttemptDerivedCaches();
     }
 
+    this.scheduleAppDataCacheWrite();
+  },
+
+  setPastPaperAttemptsData(attempts) {
+    const seen = new Set();
+    this.state.pastPaperAttempts = (attempts || [])
+      .filter((attempt) => {
+        const key = String(
+          attempt?.id ||
+            `past_paper:${attempt?.setId || ""}:${attempt?.completedAt || ""}`
+        );
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b?.completedAt || 0).getTime() -
+          new Date(a?.completedAt || 0).getTime()
+      );
+    this.state.userStats = this.buildUserStats(
+      this.state.attempts || [],
+      this.state.pastPaperAttempts
+    );
+    this.state.accountSummary = null;
     this.scheduleAppDataCacheWrite();
   },
 
@@ -617,16 +688,36 @@ export const learnerFeatures = {
     return Math.round(total / attempts.length);
   },
 
-  buildUserStats(attempts) {
-    const quizIds = new Set();
+  buildUserStats(attempts, pastPaperAttempts = []) {
+    const normalAttempts = (attempts || []).map((attempt) => ({
+      ...attempt,
+      assessmentKind: "quiz",
+      section: "normal",
+    }));
+    const examAttempts = (pastPaperAttempts || []).map((attempt) => ({
+      ...attempt,
+      assessmentKind: "past_paper",
+      section: "exam",
+      mode: "exam",
+    }));
+    const combinedAttempts = [...normalAttempts, ...examAttempts].sort(
+      (a, b) =>
+        new Date(b?.completedAt || 0).getTime() -
+        new Date(a?.completedAt || 0).getTime()
+    );
+    const assessmentIds = new Set();
     const modes = { study: [], exam: [] };
     const courseMap = {};
 
-    (attempts || []).forEach((attempt) => {
-      if (attempt?.quizId) {
-        quizIds.add(attempt.quizId);
+    combinedAttempts.forEach((attempt) => {
+      if (attempt.assessmentKind === "past_paper" && attempt?.setId) {
+        assessmentIds.add(`past_paper:${attempt.setId}`);
+      } else if (attempt?.quizId) {
+        assessmentIds.add(`quiz:${attempt.quizId}`);
       }
-      modes[attempt.mode].push(attempt);
+      if (attempt.assessmentKind === "quiz" && modes[attempt.mode]) {
+        modes[attempt.mode].push(attempt);
+      }
 
       const quiz = this.getQuizDescriptorById(attempt.quizId);
       const levelName = attempt.level || quiz?.level || "";
@@ -636,7 +727,7 @@ export const learnerFeatures = {
       courseMap[courseLabel].push(attempt);
     });
 
-    const bestAttempt = (attempts || []).reduce((best, current) => {
+    const bestAttempt = combinedAttempts.reduce((best, current) => {
       if (!best) return current;
       if (current.percentage > best.percentage) return current;
       if (current.percentage === best.percentage && current.score > best.score)
@@ -649,7 +740,17 @@ export const learnerFeatures = {
         area,
         attempts: courseAttempts.length,
         quizzesDone: new Set(
-          courseAttempts.map((attempt) => attempt.quizId).filter(Boolean)
+          courseAttempts
+            .map((attempt) =>
+              attempt.assessmentKind === "past_paper"
+                ? attempt.setId
+                  ? `past_paper:${attempt.setId}`
+                  : ""
+                : attempt.quizId
+                  ? `quiz:${attempt.quizId}`
+                  : ""
+            )
+            .filter(Boolean)
         ).size,
         averagePercentage: this.calculateAveragePercentage(courseAttempts),
         bestAttempt: courseAttempts.reduce((best, current) => {
@@ -670,10 +771,31 @@ export const learnerFeatures = {
       });
 
     return {
-      attemptsCount: attempts.length,
-      quizzesDoneCount: quizIds.size,
-      averagePercentage: this.calculateAveragePercentage(attempts || []),
+      attemptsCount: combinedAttempts.length,
+      quizzesDoneCount: assessmentIds.size,
+      averagePercentage: this.calculateAveragePercentage(combinedAttempts),
       bestAttempt,
+      sectionStats: {
+        normal: {
+          attemptsCount: normalAttempts.length,
+          assessmentsDoneCount: new Set(
+            normalAttempts.map((attempt) => attempt.quizId).filter(Boolean)
+          ).size,
+          averagePercentage: this.calculateAveragePercentage(normalAttempts),
+        },
+        exam: {
+          attemptsCount: examAttempts.length,
+          assessmentsDoneCount: new Set(
+            examAttempts.map((attempt) => attempt.setId).filter(Boolean)
+          ).size,
+          averagePercentage: this.calculateAveragePercentage(examAttempts),
+        },
+        combined: {
+          attemptsCount: combinedAttempts.length,
+          assessmentsDoneCount: assessmentIds.size,
+          averagePercentage: this.calculateAveragePercentage(combinedAttempts),
+        },
+      },
       modeStats: {
         study: {
           attemptsCount: modes.study.length,
@@ -685,7 +807,7 @@ export const learnerFeatures = {
         },
       },
       courseStats,
-      recentAttempts: (attempts || []).slice(0, 10),
+      recentAttempts: combinedAttempts.slice(0, 10),
     };
   },
 
@@ -1011,7 +1133,7 @@ export const learnerFeatures = {
     const confirmed = await confirmDialog({
       title: "Reset account history",
       message:
-        "This will delete your saved quiz attempts and performance stats.",
+        "This will delete your saved quiz and exam attempts, drafts, and performance stats.",
       submitLabel: "Reset account",
       danger: true,
     });
@@ -1024,29 +1146,35 @@ export const learnerFeatures = {
     }
 
     try {
-      const [attemptsResult, progressResult] = await Promise.all([
-        this.withTimeout(
-          this.getSupabase()
-            .from("quiz_attempts")
-            .delete()
-            .eq("user_id", userId),
-          12000,
-          "Resetting account history"
-        ),
-        this.withTimeout(
-          deleteAllAssessmentProgress(this.getSupabase(), userId),
-          12000,
-          "Resetting saved progress"
-        ),
-      ]);
-      if (attemptsResult.error) throw attemptsResult.error;
-      if (
-        progressResult.error &&
-        !this.isRpcUnavailable(progressResult.error)
-      ) {
-        throw progressResult.error;
+      const resetResult = await this.withTimeout(
+        this.getSupabase().rpc("app_reset_account_history"),
+        12000,
+        "Resetting account history"
+      );
+
+      if (resetResult.error && this.isRpcUnavailable(resetResult.error)) {
+        const [attemptsResult, progressResult] = await Promise.all([
+          this.withTimeout(
+            this.getSupabase()
+              .from("quiz_attempts")
+              .delete()
+              .eq("user_id", userId),
+            12000,
+            "Resetting quiz history"
+          ),
+          this.withTimeout(
+            deleteAllAssessmentProgress(this.getSupabase(), userId),
+            12000,
+            "Resetting saved progress"
+          ),
+        ]);
+        if (attemptsResult.error) throw attemptsResult.error;
+        if (progressResult.error) throw progressResult.error;
+      } else if (resetResult.error) {
+        throw resetResult.error;
       }
       this.setAttemptsData([]);
+      this.setPastPaperAttemptsData([]);
       this.state.accountSummary = null;
       this.state.quizAttemptSummariesById = {};
       this.showToast("Account history reset.");
@@ -4191,7 +4319,7 @@ export const learnerFeatures = {
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
     this.dom.accountPageTitle.textContent = `${displayName}'s Account`;
     this.dom.accountPageSubtitle.textContent =
-      "Your key stats, overall performance, and course-by-course results";
+      "Normal quiz and Past Paper performance, together and side by side";
 
     const hasAttempts = !!stats?.attemptsCount;
     this.dom.accountEmptyState.hidden = hasAttempts;
@@ -4212,21 +4340,23 @@ export const learnerFeatures = {
         note: `${stats.attemptsCount} total attempts recorded`,
       },
       {
-        label: "Overall Average",
+        label: "Combined Average",
         value: `${stats.averagePercentage}%`,
-        note: "Across all saved quiz attempts",
+        note: "Attempt-weighted across normal quizzes and exams",
       },
       {
         label: "Best Score",
         value: this.formatAttemptScore(stats.bestAttempt),
         note: stats.bestAttempt
-          ? `${this.formatModeLabel(stats.bestAttempt.mode)} mode`
+          ? stats.bestAttempt.assessmentKind === "past_paper"
+            ? "Past Paper exam"
+            : `${this.formatModeLabel(stats.bestAttempt.mode)} quiz`
           : "No attempts",
       },
     ]
       .map(
         (card) => `
-      <div class="account-stat-card">
+      <div class="app-surface-card account-stat-card">
         <span class="account-stat-label">${this.escapeHtml(card.label)}</span>
         <span class="account-stat-value">${this.escapeHtml(card.value)}</span>
         <span class="account-stat-note">${this.escapeHtml(card.note)}</span>
@@ -4235,14 +4365,19 @@ export const learnerFeatures = {
       )
       .join("");
 
-    this.dom.accountModeGrid.innerHTML = ["study", "exam"]
-      .map((mode) => {
-        const modeStats = stats.modeStats[mode];
+    const sectionCards = [
+      { key: "normal", label: "Normal Quizzes" },
+      { key: "exam", label: "Past Paper Exams" },
+      { key: "combined", label: "Combined" },
+    ];
+    this.dom.accountModeGrid.innerHTML = sectionCards
+      .map(({ key, label }) => {
+        const sectionStats = stats.sectionStats[key];
         return `
-        <div class="account-stat-card">
-          <span class="account-stat-label">${this.escapeHtml(this.formatModeLabel(mode))} Mode</span>
-          <span class="account-stat-value">${modeStats.averagePercentage}%</span>
-          <span class="account-stat-note">${modeStats.attemptsCount} attempt${modeStats.attemptsCount === 1 ? "" : "s"}</span>
+        <div class="app-surface-card account-stat-card account-assessment-card" data-account-section="${this.escapeHtml(key)}">
+          <span class="account-stat-label">${this.escapeHtml(label)}</span>
+          <span class="account-stat-value">${sectionStats.averagePercentage}%</span>
+          <span class="account-stat-note">${sectionStats.attemptsCount} attempt${sectionStats.attemptsCount === 1 ? "" : "s"} &middot; ${sectionStats.assessmentsDoneCount} completed</span>
         </div>
       `;
       })
@@ -4251,7 +4386,7 @@ export const learnerFeatures = {
     this.dom.accountCourseGrid.innerHTML = stats.courseStats
       .map(
         (course) => `
-      <div class="account-course-card">
+      <div class="app-surface-card account-course-card">
         <div class="account-course-head">
           <h3 class="account-course-title">${this.escapeHtml(course.area)}</h3>
           <span class="account-course-score">${course.averagePercentage}%</span>
@@ -4268,13 +4403,20 @@ export const learnerFeatures = {
         const quiz = this.getQuizDescriptorById(attempt.quizId);
         const title = attempt.quizTitle || quiz?.title || "Quiz";
         const area = attempt.area || quiz?.area || "Unknown course";
-        const sub = attempt.sub || quiz?.sub || "Unknown module";
+        const sub =
+          attempt.assessmentKind === "past_paper"
+            ? "Past Paper Exam"
+            : attempt.sub || quiz?.sub || "Unknown module";
+        const modeLabel =
+          attempt.assessmentKind === "past_paper"
+            ? "Exam"
+            : `${this.formatModeLabel(attempt.mode)} quiz`;
         return `
-        <div class="account-recent-card">
+        <div class="app-surface-card account-recent-card">
           <div class="account-recent-head">
             <div>
               <h3 class="account-recent-title">${this.escapeHtml(title)}</h3>
-              <p class="account-recent-meta">${this.escapeHtml(area)} - ${this.escapeHtml(sub)} - ${this.escapeHtml(this.formatModeLabel(attempt.mode))}</p>
+              <p class="account-recent-meta">${this.escapeHtml(area)} - ${this.escapeHtml(sub)} - ${this.escapeHtml(modeLabel)}</p>
             </div>
             <span class="account-recent-score">${this.escapeHtml(this.formatAttemptScore(attempt))}</span>
           </div>
