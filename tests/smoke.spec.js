@@ -232,6 +232,105 @@ const learnerQuestionsByQuizId = {
   ],
 };
 
+const learnerPastPaperYears = [
+  {
+    year_label: "Year 1",
+    paper_group_label: "Past Papers",
+    topic_count: 1,
+    exam_count: 1,
+    unit_count: 1,
+    total_marks: 2,
+    attempt_count: 0,
+    best_percentage: 0,
+  },
+];
+
+const learnerPastPaperTopics = [
+  {
+    year_label: "Year 1",
+    paper_group_label: "Past Papers",
+    topic_label: "Anatomy",
+    exam_count: 1,
+    unit_count: 1,
+    total_marks: 2,
+    attempt_count: 0,
+    best_percentage: 0,
+  },
+];
+
+const learnerPastPaperExams = [
+  {
+    set_id: "past-paper-set-1",
+    title: "Anatomy Past Paper 1",
+    year_label: "Year 1",
+    paper_group_label: "Past Papers",
+    topic_label: "Anatomy",
+    unit_count: 1,
+    total_marks: 2,
+    attempt_count: 0,
+    best_percentage: 0,
+    latest_percentage: 0,
+  },
+];
+
+const learnerPastPaperUnits = [
+  {
+    unit_id: "past-paper-unit-1",
+    stem: "Assess both anatomy statements.",
+    image_url: "",
+    display_order: 1,
+    branches: [
+      {
+        branchId: "past-paper-branch-1",
+        order: 1,
+        prompt: "The anatomical position is upright.",
+        imageUrl: "",
+      },
+      {
+        branchId: "past-paper-branch-2",
+        order: 2,
+        prompt: "The heart is part of the axial skeleton.",
+        imageUrl: "",
+      },
+    ],
+  },
+];
+
+const learnerPastPaperReview = {
+  attempt: {
+    setId: "past-paper-set-1",
+    score: 1,
+    totalMarks: 2,
+    correct: 1,
+    wrong: 1,
+    unanswered: 0,
+    percentage: 50,
+  },
+  units: [
+    {
+      stem: "Assess both anatomy statements.",
+      branches: [
+        {
+          order: 1,
+          prompt: "The anatomical position is upright.",
+          userAnswer: true,
+          correctAnswer: true,
+          isCorrect: true,
+          explanation: "This is the standard reference position.",
+        },
+        {
+          order: 2,
+          prompt: "The heart is part of the axial skeleton.",
+          userAnswer: true,
+          correctAnswer: false,
+          isCorrect: false,
+          explanation: "The heart is an organ.",
+        },
+      ],
+    },
+  ],
+};
+
 const learnerAccountSummary = {
   attemptsCount: 2,
   quizzesDoneCount: 2,
@@ -289,6 +388,7 @@ const learnerResultSnapshot = {
   unanswered: 0,
   percent: 100,
   mode: "study",
+  negativeMarking: false,
   attemptCount: 1,
   context: {
     level: "Year 1",
@@ -297,6 +397,8 @@ const learnerResultSnapshot = {
     type: "tf",
     title: "Introduction Assessment 1",
     mode: "study",
+    durationMinutes: null,
+    negativeMarking: false,
   },
   results: [
     {
@@ -550,6 +652,11 @@ async function stubSupabase(
         const learnerAttemptSummaryByQuizId = ${JSON.stringify(learnerAttemptSummaryByQuizId)};
         const learnerQuestionsByQuizId = ${JSON.stringify(learnerQuestionsByQuizId)};
         const learnerAccountSummary = ${JSON.stringify(learnerAccountSummary)};
+        const learnerPastPaperYears = ${JSON.stringify(learnerPastPaperYears)};
+        const learnerPastPaperTopics = ${JSON.stringify(learnerPastPaperTopics)};
+        const learnerPastPaperExams = ${JSON.stringify(learnerPastPaperExams)};
+        const learnerPastPaperUnits = ${JSON.stringify(learnerPastPaperUnits)};
+        const learnerPastPaperReview = ${JSON.stringify(learnerPastPaperReview)};
 
         const initialAuthState = {
           currentUser: ${JSON.stringify(
@@ -612,6 +719,9 @@ async function stubSupabase(
           if (!Array.isArray(state.calls)) {
             state.calls = [];
           }
+          if (!state.assessmentProgress || typeof state.assessmentProgress !== "object") {
+            state.assessmentProgress = {};
+          }
           writeTestState(state);
           return state;
         };
@@ -643,12 +753,62 @@ async function stubSupabase(
             const queryBuilder = (table) => ({
               table,
               _insertRows: null,
+              _filters: {},
+              _deleteRows: false,
               select() { return this; },
-              eq() { return this; },
+              eq(column, value) {
+                this._filters[column] = value;
+                if (
+                  this.table === "user_assessment_progress"
+                  && this._deleteRows
+                  && this._filters.user_id
+                  && this._filters.assessment_kind
+                  && this._filters.assessment_id
+                  && this._filters.progress_key
+                ) {
+                  const state = ensureTestState();
+                  const key = [
+                    this._filters.user_id,
+                    this._filters.assessment_kind,
+                    this._filters.assessment_id,
+                    this._filters.progress_key
+                  ].join("|||");
+                  delete state.assessmentProgress[key];
+                  state.calls.push({ name: "assessmentProgressDelete", key });
+                  writeTestState(state);
+                }
+                return this;
+              },
               in() { return this; },
+              order() { return this; },
+              limit() { return this; },
               maybeSingle() {
                 if (this.table === "user_preferences") {
                   return Promise.resolve({ data: { theme: ${JSON.stringify(theme)} }, error: null });
+                }
+                if (this.table === "user_assessment_progress") {
+                  const state = ensureTestState();
+                  const prefix = [
+                    this._filters.user_id || "",
+                    this._filters.assessment_kind || "",
+                    this._filters.assessment_id || ""
+                  ].join("|||") + "|||";
+                  const rows = Object.entries(state.assessmentProgress)
+                    .filter(([key]) => key.startsWith(prefix))
+                    .map(([, row]) => row)
+                    .filter((row) =>
+                      !this._filters.progress_key
+                      || row.progress_key === this._filters.progress_key
+                    )
+                    .sort((a, b) =>
+                      String(b.updated_at || "").localeCompare(
+                        String(a.updated_at || "")
+                      )
+                    );
+                  return Promise.resolve({
+                    data: rows[0] ? clone(rows[0]) : null,
+                    error: null
+                  });
                 }
                 return emptyResponse;
               },
@@ -674,12 +834,38 @@ async function stubSupabase(
                 }
                 return emptyResponse;
               },
-              upsert() { return emptyResponse; },
+              upsert(rows) {
+                if (this.table === "user_assessment_progress") {
+                  const row = Array.isArray(rows) ? rows[0] : rows;
+                  const state = ensureTestState();
+                  const key = [
+                    row.user_id,
+                    row.assessment_kind,
+                    row.assessment_id,
+                    row.progress_key
+                  ].join("|||");
+                  state.assessmentProgress[key] = {
+                    ...clone(row),
+                    updated_at: new Date().toISOString()
+                  };
+                  state.calls.push({
+                    name: "assessmentProgressUpsert",
+                    key,
+                    assessmentId: row.assessment_id,
+                    progressKey: row.progress_key
+                  });
+                  writeTestState(state);
+                }
+                return emptyResponse;
+              },
               insert(rows) {
                 this._insertRows = rows;
                 return this;
               },
-              delete() { return this; }
+              delete() {
+                this._deleteRows = true;
+                return this;
+              }
             });
 
             return {
@@ -817,6 +1003,25 @@ async function stubSupabase(
                 if (name === "app_account_summary") {
                   return Promise.resolve({ data: clone(learnerAccountSummary), error: null });
                 }
+                if (name === "app_past_paper_years") {
+                  return Promise.resolve({ data: clone(learnerPastPaperYears), error: null });
+                }
+                if (name === "app_past_paper_topics") {
+                  return Promise.resolve({ data: clone(learnerPastPaperTopics), error: null });
+                }
+                if (name === "app_past_paper_exams") {
+                  return Promise.resolve({ data: clone(learnerPastPaperExams), error: null });
+                }
+                if (name === "app_past_paper_units") {
+                  return Promise.resolve({ data: clone(learnerPastPaperUnits), error: null });
+                }
+                if (name === "app_submit_past_paper_attempt") {
+                  recordCall({ name, params: clone(params) });
+                  return Promise.resolve({ data: { attemptId: "past-paper-attempt-1" }, error: null });
+                }
+                if (name === "app_past_paper_attempt_review") {
+                  return Promise.resolve({ data: clone(learnerPastPaperReview), error: null });
+                }
                 return Promise.resolve({ data: [], error: null });
               }
             };
@@ -831,7 +1036,7 @@ async function stubSupabase(
 async function seedLearnerResultSnapshot(page) {
   await page.addInitScript((snapshot) => {
     const key =
-      "quiz-app:user-1:result:Year 1|||Anatomy|||Introduction to Anatomy|||tf|||Introduction Assessment 1|||study";
+      "quiz-app:user-1:result:Year 1|||Anatomy|||Introduction to Anatomy|||tf|||Introduction Assessment 1|||study|||standard";
     window.localStorage.setItem(key, JSON.stringify(snapshot));
   }, learnerResultSnapshot);
 }
@@ -1281,6 +1486,166 @@ test("learner mobile browse routes keep full-width cards and stable stats", asyn
   );
 });
 
+test("past paper exams use assessment settings for timer and negative marking", async ({
+  page,
+}) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true, theme: "dark" });
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.goto("/past-papers/exams/?year=Year%201&topic=Anatomy");
+
+  await expect(page.locator("#past-paper-exams-view")).toBeVisible();
+  await page.locator("#past-paper-exams-grid .quizlist-card").first().click();
+
+  await expect(page.locator(".dialog-panel")).toBeVisible();
+  await expect(page.locator(".dialog-title")).toHaveText(
+    "Anatomy Past Paper 1"
+  );
+  await expect(page.locator(".dialog-copy")).toHaveCount(0);
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toHaveClass(/is-selected/);
+  await expect(page.locator(".dialog-switch-input")).not.toBeChecked();
+
+  await page.locator('.dialog-wheel-option[data-value="5"]').click();
+  await page.locator(".dialog-switch-input").check();
+  await page.locator(".dialog-btn.primary").click();
+
+  await expect.poll(() => new URL(page.url()).pathname).toBe(
+    "/past-papers/session/"
+  );
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("duration"))
+    .toBe("5");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("negative"))
+    .toBe("1");
+  await expect(page.locator("#past-paper-session-view")).toBeVisible();
+  await expect(page.locator("#past-paper-mode-badge")).toContainText("5 MIN");
+  await expect(page.locator("#past-paper-progress-copy")).toContainText(":");
+  await expect(
+    page.locator("#past-paper-session-view .q-type-badge").first()
+  ).toContainText("NEGATIVE MARKING");
+
+  await page.locator(".past-paper-branch .opt-true").nth(0).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = JSON.parse(
+          window.localStorage.getItem("__supabaseTestState") ||
+            '{"calls":[]}'
+        );
+        return (state.calls || []).some(
+          (call) =>
+            call.name === "assessmentProgressUpsert" &&
+            call.assessmentId === "past-paper-set-1"
+        );
+      })
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    Object.keys(window.localStorage)
+      .filter((key) => key.includes(":past-paper-draft:"))
+      .forEach((key) => window.localStorage.removeItem(key));
+  });
+  await page.reload();
+  await expect(page.locator("#past-paper-session-view")).toBeVisible();
+  await expect(
+    page.locator(
+      'input[data-branch-input="past-paper-branch-1"][value="true"]'
+    )
+  ).toBeChecked();
+  await page.locator(".past-paper-branch .opt-true").nth(1).click();
+  await page.locator("#btn-submit-past-paper").click();
+
+  await expect(page.locator("#past-paper-review-view")).toBeVisible();
+  await expect(page.locator("#past-paper-review-score")).toHaveText("0/2");
+  await expect(page.locator("#past-paper-review-percent")).toHaveText("0%");
+  await expect(page.locator("#past-paper-review-list")).toContainText(
+    "Incorrect (-1)"
+  );
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("negative"))
+    .toBe("1");
+  await expectNoHorizontalOverflow(page);
+});
+
+test("account progress restores study and exam drafts without device storage", async ({
+  page,
+}) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true, theme: "dark" });
+
+  const clearDeviceQuizDrafts = () => {
+    Object.keys(window.localStorage)
+      .filter((key) => key.startsWith("quiz-app:user-1:draft:"))
+      .forEach((key) => window.localStorage.removeItem(key));
+  };
+  const accountSaveCount = (assessmentId) => {
+    const state = JSON.parse(
+      window.localStorage.getItem("__supabaseTestState") || '{"calls":[]}'
+    );
+    return (state.calls || []).filter(
+      (call) =>
+        call.name === "assessmentProgressUpsert" &&
+        call.assessmentId === assessmentId
+    ).length;
+  };
+
+  await page.goto("/quiz/?quizId=quiz-tf-1&mode=study&negative=0");
+  await expect(page.locator("#quiz-view")).toBeVisible();
+  await page.locator("#quiz-form .opt-true").first().click();
+  await expect
+    .poll(() => page.evaluate(accountSaveCount, "quiz-tf-1"))
+    .toBeGreaterThan(0);
+
+  await page.evaluate(clearDeviceQuizDrafts);
+  await page.reload();
+  await expect(page.locator("#quiz-view")).toBeVisible();
+  await expect(
+    page.locator('#quiz-form input[value="TRUE"]:checked')
+  ).toHaveCount(1);
+  await expect(page.locator("#quiz-answered-count")).toHaveText("1");
+
+  const savesBeforeExam = await page.evaluate(
+    accountSaveCount,
+    "quiz-tf-1"
+  );
+  await page.goto(
+    "/quiz/?quizId=quiz-tf-1&mode=exam&duration=5&negative=1"
+  );
+  await expect(page.locator("#quiz-view")).toBeVisible();
+  await page.locator("#quiz-form .opt-false").first().click();
+  await expect
+    .poll(() => page.evaluate(accountSaveCount, "quiz-tf-1"))
+    .toBeGreaterThan(savesBeforeExam);
+
+  await page.evaluate(clearDeviceQuizDrafts);
+  await page.reload();
+  await expect(page.locator("#quiz-view")).toBeVisible();
+  await expect(
+    page.locator('#quiz-form input[value="FALSE"]:checked')
+  ).toHaveCount(1);
+  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
+  await expect(page.locator("#quiz-answered-count")).toHaveText("1");
+
+  await page.evaluate(clearDeviceQuizDrafts);
+  await page.goto("/quiz/?quizId=quiz-tf-1&mode=study&negative=0");
+  await expect(page.locator("#quiz-view")).toBeVisible();
+  await expect(
+    page.locator('#quiz-form input[value="TRUE"]:checked')
+  ).toHaveCount(1);
+  await expect(page.locator("#quiz-answered-count")).toHaveText("1");
+
+  await page.goto(
+    "/quizzes/?level=Year%201&area=Anatomy&sub=Introduction%20to%20Anatomy&type=tf"
+  );
+  await page.locator("#quiz-list .quizlist-card").first().click();
+  await expect(page.locator(".dialog-panel")).toBeVisible();
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toHaveClass(/is-selected/);
+  await expect(page.locator(".dialog-switch-input")).not.toBeChecked();
+});
+
 test("learner mobile flow routes render without collapsing layout", async ({
   page,
 }) => {
@@ -1315,25 +1680,68 @@ test("learner mobile flow routes render without collapsing layout", async ({
     ".quizlist-card-trailing"
   );
 
-  await page.goto("/setup/?quizId=quiz-tf-1");
-  await expect(page.locator("#setup-view")).toBeVisible();
-  await expect(page.locator("#setup-performance-card")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expectGridColumns(page, "#setup-view .setup-stat-bar", 3);
-  await expectTrailingStaysInline(
-    page,
-    "#setup-view .setup-mode-actions .setup-mode-card",
-    ".setup-mode-copy",
-    ".setup-mode-trailing"
+  await page.locator("#quiz-list .quizlist-card").first().click();
+  await expect(page.locator(".dialog-panel")).toBeVisible();
+  await expect(page.locator(".dialog-copy")).toHaveCount(0);
+  await expect(page.locator(".dialog-setting-note")).toHaveCount(0);
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toHaveClass(/is-selected/);
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toContainText("No time");
+  const timerTopSpacing = await page.evaluate(() => {
+    const list = document.querySelector(".dialog-wheel-list");
+    const noTime = document.querySelector(
+      '.dialog-wheel-option[data-value="0"]'
+    );
+    if (!list || !noTime) return null;
+    return Math.round(noTime.getBoundingClientRect().top - list.getBoundingClientRect().top);
+  });
+  expect(timerTopSpacing).not.toBeNull();
+  expect(timerTopSpacing).toBeLessThanOrEqual(2);
+  await expect(page.locator(".dialog-switch-input")).not.toBeChecked();
+  await page.locator(".dialog-info-btn").focus();
+  await expect(page.locator(".dialog-info-tooltip")).toBeVisible();
+  await expect(page.locator(".dialog-info-tooltip")).toContainText(
+    "Wrong answers lose 1 point"
   );
+  const tooltipBounds = await page.evaluate(() => {
+    const panel = document.querySelector(".dialog-panel")?.getBoundingClientRect();
+    const tooltip = document
+      .querySelector(".dialog-info-tooltip")
+      ?.getBoundingClientRect();
+    if (!panel || !tooltip) return null;
+    return {
+      panelLeft: Math.round(panel.left),
+      panelRight: Math.round(panel.right),
+      tooltipLeft: Math.round(tooltip.left),
+      tooltipRight: Math.round(tooltip.right),
+    };
+  });
+  expect(tooltipBounds).not.toBeNull();
+  expect(tooltipBounds.tooltipLeft).toBeGreaterThanOrEqual(
+    tooltipBounds.panelLeft
+  );
+  expect(tooltipBounds.tooltipRight).toBeLessThanOrEqual(
+    tooltipBounds.panelRight
+  );
+  await page.locator('.dialog-wheel-option[data-value="5"]').click();
+  await page.locator(".dialog-switch-input").check();
+  await page.locator(".dialog-btn.primary").click();
 
-  await page.goto("/quiz/?quizId=quiz-tf-1&mode=study");
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/quiz/");
+  await expect.poll(() => new URL(page.url()).searchParams.get("duration")).toBe("5");
+  await expect.poll(() => new URL(page.url()).searchParams.get("negative")).toBe("1");
   await expect(page.locator("#quiz-view")).toBeVisible();
+  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
+  await expect(page.locator("#quiz-mode-badge")).toContainText("5 MIN");
+  await expect(page.locator("#quiz-view .q-type-badge").first()).toContainText(
+    "NEGATIVE MARKING"
+  );
+  await expect(page.locator("#btn-submit")).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectGridColumns(page, "#quiz-view .quiz-session-stats", 3);
-  await expect(
-    page.locator("#quiz-view .quiz-session-mode-badge")
-  ).toContainText("TRUE / FALSE");
   await expect(page.locator("#quiz-view .tf-options").first()).toBeVisible();
   const quizShell = await page.evaluate(() => ({
     submitPosition:
@@ -1342,12 +1750,22 @@ test("learner mobile flow routes render without collapsing layout", async ({
   }));
   expect(quizShell.submitPosition).toBe("fixed");
 
-  await page.goto("/quiz/?quizId=quiz-tf-1&mode=exam&duration=5");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
-  await expect(page.locator("#btn-submit")).toBeEnabled();
+  const quizCards = page.locator("#quiz-view .question-card");
+  for (let index = 0; index < (await quizCards.count()); index += 1) {
+    const card = quizCards.nth(index);
+    const question = await card.locator(".question-stem").textContent();
+    await card
+      .locator(question?.includes("anatomical position") ? ".opt-false" : ".opt-true")
+      .click();
+  }
+  await page.locator("#btn-submit").click();
+  await expect(page.locator("#results-view")).toBeVisible();
+  await expect(page.locator("#final-score")).toContainText("-2");
+  await expect(page.locator("#results-container")).toContainText(
+    "INCORRECT (-1)"
+  );
 
-  await page.goto("/results/?quizId=quiz-tf-1&mode=study");
+  await page.goto("/results/?quizId=quiz-tf-1&mode=study&negative=0");
   await expect(page.locator("#results-view")).toBeVisible();
   await expect(page.locator("#results-view .results-score-hero")).toBeVisible();
   await expect(

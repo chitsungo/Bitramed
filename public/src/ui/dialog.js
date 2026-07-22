@@ -53,7 +53,9 @@ function buildDialogShell({
 
   actions.append(cancelButton, submitButton);
   form.append(fields, actions);
-  panel.append(heading, copy, form);
+  panel.appendChild(heading);
+  if (message) panel.appendChild(copy);
+  panel.appendChild(form);
   overlay.appendChild(panel);
 
   return {
@@ -119,23 +121,31 @@ export function confirmDialog({
   });
 }
 
-export function durationPickerDialog({
-  title = "Set duration",
+export function quizSettingsDialog({
+  title = "Start quiz",
   message = "",
-  submitLabel = "Continue",
+  submitLabel = "Start quiz",
   cancelLabel = "Cancel",
   min = 5,
-  max = 20,
-  initial = 10,
+  max = 30,
+  initial = null,
+  negativeMarking = false,
 } = {}) {
   return new Promise((resolve) => {
     const root = ensureDialogRoot();
     const safeMin = Math.min(min, max);
     const safeMax = Math.max(min, max);
-    let selected = Math.min(
-      safeMax,
-      Math.max(safeMin, Number.parseInt(initial, 10) || safeMin)
-    );
+    const parsedInitial = Number.parseInt(initial, 10);
+    const optionValues = [
+      0,
+      ...Array.from(
+        { length: safeMax - safeMin + 1 },
+        (_, index) => safeMin + index
+      ),
+    ];
+    let selected = Number.isFinite(parsedInitial)
+      ? Math.min(safeMax, Math.max(safeMin, parsedInitial))
+      : 0;
 
     const { overlay, panel, form, fields, cancelButton, submitButton } =
       buildDialogShell({
@@ -150,18 +160,20 @@ export function durationPickerDialog({
 
     const wheelLabel = document.createElement("div");
     wheelLabel.className = "dialog-wheel-label";
-    wheelLabel.textContent = "Minutes";
+    wheelLabel.textContent = "Timer";
 
     const wheelList = document.createElement("div");
     wheelList.className = "dialog-wheel-list";
 
     const options = [];
-    for (let minutes = safeMin; minutes <= safeMax; minutes += 1) {
+    optionValues.forEach((minutes) => {
       const option = document.createElement("button");
       option.type = "button";
       option.className = "dialog-wheel-option";
       option.dataset.value = String(minutes);
-      option.innerHTML = `<span class="dialog-wheel-value">${minutes}</span><span class="dialog-wheel-unit">min</span>`;
+      option.innerHTML = minutes
+        ? `<span class="dialog-wheel-value">${minutes}</span><span class="dialog-wheel-unit">min</span>`
+        : `<span class="dialog-wheel-value dialog-wheel-value-text">No time</span>`;
       option.addEventListener("click", () => {
         selected = minutes;
         syncSelection();
@@ -169,7 +181,7 @@ export function durationPickerDialog({
       });
       wheelList.appendChild(option);
       options.push(option);
-    }
+    });
 
     const syncSelection = () => {
       options.forEach((option) => {
@@ -181,67 +193,82 @@ export function durationPickerDialog({
 
     const findNearestSelection = () => {
       const listRect = wheelList.getBoundingClientRect();
-      const midpoint = listRect.top + listRect.height / 2;
+      const midpoint = listRect.top + wheelList.offsetHeight / 2;
       let nearestOption = options[0];
       let nearestDistance = Number.POSITIVE_INFINITY;
 
       options.forEach((option) => {
         const rect = option.getBoundingClientRect();
-        const optionMid = rect.top + rect.height / 2;
-        const distance = Math.abs(optionMid - midpoint);
+        const distance = Math.abs(rect.top + rect.height / 2 - midpoint);
         if (distance < nearestDistance) {
           nearestDistance = distance;
           nearestOption = option;
         }
       });
 
-      selected = Number(nearestOption?.dataset.value || selected);
+      selected = Number(nearestOption?.dataset.value || 0);
       syncSelection();
     };
 
     let scrollTimer = null;
     wheelList.addEventListener("scroll", () => {
       if (scrollTimer) window.clearTimeout(scrollTimer);
-      scrollTimer = window.setTimeout(() => {
-        findNearestSelection();
-      }, 60);
+      scrollTimer = window.setTimeout(findNearestSelection, 60);
     });
 
+    const markingRow = document.createElement("div");
+    markingRow.className = "dialog-setting-row";
+    markingRow.innerHTML = `
+      <div class="dialog-setting-copy">
+        <div class="dialog-setting-title-row">
+          <span class="dialog-setting-title">Negative marking</span>
+          <span class="dialog-info-wrap">
+            <button class="dialog-info-btn" type="button" aria-label="Negative marking rules" aria-describedby="negative-marking-tooltip">i</button>
+            <span id="negative-marking-tooltip" class="dialog-info-tooltip" role="tooltip">Correct answers earn 1 point. Wrong answers lose 1 point. Unanswered questions score 0.</span>
+          </span>
+        </div>
+      </div>
+      <label class="dialog-switch">
+        <input class="dialog-switch-input" type="checkbox" aria-label="Toggle negative marking">
+        <span class="dialog-switch-track" aria-hidden="true"></span>
+      </label>
+    `;
+    const toggleInput = markingRow.querySelector(".dialog-switch-input");
+    toggleInput.checked = !!negativeMarking;
+
     wheel.append(wheelLabel, wheelList);
-    fields.appendChild(wheel);
+    fields.append(wheel, markingRow);
 
     const close = (result) => {
-      if (scrollTimer) {
-        window.clearTimeout(scrollTimer);
-        scrollTimer = null;
-      }
+      if (scrollTimer) window.clearTimeout(scrollTimer);
       document.removeEventListener("keydown", onKeyDown);
       teardownDialog(root, overlay);
       resolve(result);
     };
 
+    const moveSelection = (direction) => {
+      const currentIndex = Math.max(0, optionValues.indexOf(selected));
+      const nextIndex = Math.min(
+        optionValues.length - 1,
+        Math.max(0, currentIndex + direction)
+      );
+      selected = optionValues[nextIndex];
+      syncSelection();
+      options[nextIndex]?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    };
+
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         close(null);
-        return;
-      }
-      if (event.key === "ArrowUp") {
+      } else if (event.key === "ArrowUp") {
         event.preventDefault();
-        selected = Math.max(safeMin, selected - 1);
-        syncSelection();
-        options[selected - safeMin]?.scrollIntoView({
-          block: "center",
-          behavior: "smooth",
-        });
-      }
-      if (event.key === "ArrowDown") {
+        moveSelection(-1);
+      } else if (event.key === "ArrowDown") {
         event.preventDefault();
-        selected = Math.min(safeMax, selected + 1);
-        syncSelection();
-        options[selected - safeMin]?.scrollIntoView({
-          block: "center",
-          behavior: "smooth",
-        });
+        moveSelection(1);
       }
     };
 
@@ -251,7 +278,10 @@ export function durationPickerDialog({
     });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      close(selected);
+      close({
+        durationMinutes: selected || null,
+        negativeMarking: toggleInput.checked,
+      });
     });
 
     root.appendChild(overlay);
@@ -259,7 +289,7 @@ export function durationPickerDialog({
 
     requestAnimationFrame(() => {
       syncSelection();
-      options[selected - safeMin]?.scrollIntoView({
+      options[optionValues.indexOf(selected)]?.scrollIntoView({
         block: "center",
         behavior: "auto",
       });

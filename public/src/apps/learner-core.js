@@ -52,6 +52,7 @@ export const learnerCore = {
     currentQuizId: "",
     mode: "study",
     currentExamDurationMinutes: null,
+    negativeMarking: false,
     quizTimeRemainingSeconds: null,
     activeQuestions: [],
     reviewWrongOnly: false,
@@ -77,6 +78,9 @@ export const learnerCore = {
       currentTopic: "",
       currentSetId: "",
       currentAttemptId: "",
+      durationMinutes: null,
+      negativeMarking: false,
+      timeRemainingSeconds: null,
       activeUnits: [],
       activeExam: null,
     },
@@ -147,7 +151,6 @@ export const learnerCore = {
       subtopics: "Bitramed Subtopics",
       types: "Bitramed Question Types",
       quizzes: "Bitramed Quizzes",
-      setup: "Bitramed Quiz Setup",
       quiz: "Bitramed Quiz",
       results: "Bitramed Results",
       "past-paper-topics": "Bitramed Past Papers",
@@ -160,7 +163,8 @@ export const learnerCore = {
     };
 
     return {
-      bodyPage: normalizedView === "past-paper-review" ? "results" : normalizedView,
+      bodyPage:
+        normalizedView === "past-paper-review" ? "results" : normalizedView,
       title: titles[normalizedView] || "Bitramed",
     };
   },
@@ -276,7 +280,8 @@ export const learnerCore = {
           ? snapshot.subtopicProgressByArea
           : {};
       this.state.quizzesByModule =
-        snapshot?.quizzesByModule && typeof snapshot.quizzesByModule === "object"
+        snapshot?.quizzesByModule &&
+        typeof snapshot.quizzesByModule === "object"
           ? snapshot.quizzesByModule
           : {};
       this.state.quizMap =
@@ -1234,9 +1239,13 @@ export const learnerCore = {
       "click",
       (event) => {
         const trigger = event.target.closest?.(
-          ".browse-card-button, .selection-card, .quizlist-card, .setup-mode-card"
+          ".browse-card-button, .selection-card, .quizlist-card"
         );
-        if (!trigger || trigger.disabled || trigger.classList.contains("is-static")) {
+        if (
+          !trigger ||
+          trigger.disabled ||
+          trigger.classList.contains("is-static")
+        ) {
           return;
         }
 
@@ -1250,21 +1259,6 @@ export const learnerCore = {
   },
 
   bindAppEvents() {
-    this.bindOptionalClick("btn-start-study", () =>
-      this.navigate("quiz", {
-        level: this.state.currentLevel,
-        area: this.state.currentArea,
-        sub: this.state.currentSub,
-        type: this.state.currentType,
-        title: this.state.currentQuizTitle,
-        mode: "study",
-      })
-    );
-
-    this.bindOptionalClick("btn-start-exam", async () =>
-      this.startExamModeFlow()
-    );
-
     this.bindOptionalClick("btn-submit", () => this.handleSubmission());
     if (this.dom.quizForm) {
       this.dom.quizForm.addEventListener("submit", (event) => {
@@ -1311,8 +1305,8 @@ export const learnerCore = {
         type: this.state.currentType,
         title: this.state.currentQuizTitle,
         mode: this.state.mode,
-        duration:
-          this.state.mode === "exam" ? this.state.currentExamDurationMinutes : "",
+        duration: this.state.currentExamDurationMinutes || "",
+        negativeMarking: this.state.negativeMarking,
       });
     });
     this.bindOptionalClick("btn-results-back-list", () => {
@@ -1509,13 +1503,11 @@ export const learnerCore = {
     });
   },
 
-  openSearchResultByIndex(index) {
+  async openSearchResultByIndex(index) {
     const item = this.state.search.results[index];
     if (!item) return;
     this.closeSearch();
-    this.navigate("setup", {
-      quizId: item.quizId,
-    });
+    await this.openQuizSettings(item.quizId);
   },
 
   setRefreshButtonLoading(isLoading) {
@@ -1686,38 +1678,47 @@ export const learnerCore = {
           sub: cleanParams.sub || "",
           type: cleanParams.type || "",
         }).toString()}`;
-      case "setup": {
-        const quizId =
-          cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
-        return quizId
-          ? `/setup/?${new URLSearchParams({ quizId }).toString()}`
-          : "/home/";
-      }
       case "quiz": {
         const quizId =
           cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
+        const hasNegativeSetting = Object.hasOwn(
+          cleanParams,
+          "negativeMarking"
+        );
+        const negativeMarking = hasNegativeSetting
+          ? cleanParams.negativeMarking === true ||
+            cleanParams.negativeMarking === "true" ||
+            cleanParams.negativeMarking === "1"
+          : cleanParams.mode === "exam";
+        const mode = cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/quiz/?${new URLSearchParams({
               quizId,
-              mode: cleanParams.mode || "study",
-              duration:
-                cleanParams.mode === "exam" && cleanParams.duration
-                  ? cleanParams.duration
-                  : "",
+              mode,
+              duration: cleanParams.duration || "",
+              negative: negativeMarking ? "1" : "0",
             }).toString()}`
           : "/home/";
       }
       case "results": {
         const quizId =
           cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
+        const hasNegativeSetting = Object.hasOwn(
+          cleanParams,
+          "negativeMarking"
+        );
+        const negativeMarking = hasNegativeSetting
+          ? cleanParams.negativeMarking === true ||
+            cleanParams.negativeMarking === "true" ||
+            cleanParams.negativeMarking === "1"
+          : cleanParams.mode === "exam";
+        const mode = cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/results/?${new URLSearchParams({
               quizId,
-              mode: cleanParams.mode || "study",
-              duration:
-                cleanParams.mode === "exam" && cleanParams.duration
-                  ? cleanParams.duration
-                  : "",
+              mode,
+              duration: cleanParams.duration || "",
+              negative: negativeMarking ? "1" : "0",
             }).toString()}`
           : "/home/";
       }
@@ -1736,12 +1737,26 @@ export const learnerCore = {
               setId: cleanParams.setId,
               year: cleanParams.year || "",
               topic: cleanParams.topic || "",
+              duration: cleanParams.duration || "",
+              negative:
+                cleanParams.negativeMarking === true ||
+                cleanParams.negativeMarking === "true" ||
+                cleanParams.negativeMarking === "1"
+                  ? "1"
+                  : "0",
             }).toString()}`
           : "/home/";
       case "past-paper-review":
         return cleanParams.attemptId
           ? `/past-papers/review/?${new URLSearchParams({
               attemptId: cleanParams.attemptId,
+              duration: cleanParams.duration || "",
+              negative:
+                cleanParams.negativeMarking === true ||
+                cleanParams.negativeMarking === "true" ||
+                cleanParams.negativeMarking === "1"
+                  ? "1"
+                  : "0",
             }).toString()}`
           : "/home/";
       case "account":
@@ -1749,9 +1764,7 @@ export const learnerCore = {
       case "settings":
         return "/settings/";
       default:
-        return query.toString()
-          ? `/home/?${query.toString()}`
-          : "/home/";
+        return query.toString() ? `/home/?${query.toString()}` : "/home/";
     }
   },
 
@@ -1818,6 +1831,7 @@ export const learnerCore = {
     }
 
     this.stopQuizCountdown?.();
+    this.stopPastPaperCountdown?.();
 
     const segments = window.location.pathname
       .replace(/^\/+|\/+$/g, "")
@@ -1834,6 +1848,7 @@ export const learnerCore = {
     this.state.currentQuizId = "";
     this.state.mode = "study";
     this.state.currentExamDurationMinutes = null;
+    this.state.negativeMarking = false;
     this.state.quizTimeRemainingSeconds = null;
     this.state.reviewWrongOnly = false;
     const pastPapers = this.getPastPaperState?.();
@@ -1842,6 +1857,9 @@ export const learnerCore = {
       pastPapers.currentTopic = "";
       pastPapers.currentSetId = "";
       pastPapers.currentAttemptId = "";
+      pastPapers.durationMinutes = null;
+      pastPapers.negativeMarking = false;
+      pastPapers.timeRemainingSeconds = null;
     }
 
     let view = "home";
@@ -1875,25 +1893,32 @@ export const learnerCore = {
       this.state.currentArea = params.get("area") || "";
       this.state.currentSub = params.get("sub") || "";
       this.state.currentType = params.get("type") || "";
-    } else if (root === "setup") {
-      view = "setup";
-      this.state.currentQuizId = params.get("quizId") || "";
     } else if (root === "quiz") {
       view = "quiz";
       this.state.currentQuizId = params.get("quizId") || "";
-      this.state.mode = params.get("mode") || "study";
-      this.state.currentExamDurationMinutes =
-        this.state.mode === "exam"
-          ? this.normalizeExamDurationMinutes(params.get("duration"))
-          : null;
+      this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
+        params.get("duration")
+      );
+      this.state.negativeMarking = params.has("negative")
+        ? params.get("negative") === "1"
+        : params.get("mode") === "exam";
+      this.state.mode =
+        this.state.currentExamDurationMinutes || this.state.negativeMarking
+          ? "exam"
+          : "study";
     } else if (root === "results") {
       view = "results";
       this.state.currentQuizId = params.get("quizId") || "";
-      this.state.mode = params.get("mode") || "study";
-      this.state.currentExamDurationMinutes =
-        this.state.mode === "exam"
-          ? this.normalizeExamDurationMinutes(params.get("duration"))
-          : null;
+      this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
+        params.get("duration")
+      );
+      this.state.negativeMarking = params.has("negative")
+        ? params.get("negative") === "1"
+        : params.get("mode") === "exam";
+      this.state.mode =
+        this.state.currentExamDurationMinutes || this.state.negativeMarking
+          ? "exam"
+          : "study";
     } else if (root === "past-papers") {
       const [, pastPaperView = "topics"] = segments;
       if (pastPaperView === "exams") {
@@ -1910,11 +1935,19 @@ export const learnerCore = {
           pastPapers.currentSetId = params.get("setId") || "";
           pastPapers.currentYear = params.get("year") || "";
           pastPapers.currentTopic = params.get("topic") || "";
+          pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
+            params.get("duration")
+          );
+          pastPapers.negativeMarking = params.get("negative") === "1";
         }
       } else if (pastPaperView === "review") {
         view = "past-paper-review";
         if (pastPapers) {
           pastPapers.currentAttemptId = params.get("attemptId") || "";
+          pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
+            params.get("duration")
+          );
+          pastPapers.negativeMarking = params.get("negative") === "1";
         }
       } else {
         view = "past-paper-topics";
@@ -1931,10 +1964,7 @@ export const learnerCore = {
 
     this.syncPageState(view);
 
-    if (
-      ["setup", "quiz", "results"].includes(view) &&
-      this.state.currentQuizId
-    ) {
+    if (["quiz", "results"].includes(view) && this.state.currentQuizId) {
       const found = await this.ensureQuizContextFromId(
         this.state.currentQuizId
       );
@@ -1965,9 +1995,6 @@ export const learnerCore = {
         break;
       case "quizzes":
         await this.renderQuizList();
-        break;
-      case "setup":
-        await this.renderSetup();
         break;
       case "quiz":
         await this.renderQuiz();
@@ -2010,7 +2037,9 @@ export const learnerCore = {
   },
 
   getRouteTransitionDuration() {
-    return this.prefersReducedRouteMotion() ? 1 : this.routeTransitionDurationMs;
+    return this.prefersReducedRouteMotion()
+      ? 1
+      : this.routeTransitionDurationMs;
   },
 
   wait(ms) {
@@ -2107,8 +2136,9 @@ export const learnerCore = {
     const isLoadingRequest = idToShow === "loading-view";
     const hasPendingLoading =
       !!this.pendingLoadingTimer || !!this.pendingLoadingResolve;
-    const hasActiveRouteTransition =
-      document.body.classList.contains("route-transitioning");
+    const hasActiveRouteTransition = document.body.classList.contains(
+      "route-transitioning"
+    );
 
     if (!isLoadingRequest && (hasPendingLoading || hasActiveRouteTransition)) {
       ++this.routeTransitionSequence;
@@ -2188,8 +2218,7 @@ export const learnerCore = {
         badge: "Pending Activation",
         badgeTone: "warning",
         title: "Access Restricted",
-        message:
-          "The account has no active subscription",
+        message: "The account has no active subscription",
         identityStatus: "Email Verified",
         identityTone: "success",
       },
