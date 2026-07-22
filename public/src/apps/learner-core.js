@@ -52,6 +52,7 @@ export const learnerCore = {
     currentQuizId: "",
     mode: "study",
     currentExamDurationMinutes: null,
+    negativeMarking: false,
     quizTimeRemainingSeconds: null,
     activeQuestions: [],
     reviewWrongOnly: false,
@@ -147,7 +148,6 @@ export const learnerCore = {
       subtopics: "Bitramed Subtopics",
       types: "Bitramed Question Types",
       quizzes: "Bitramed Quizzes",
-      setup: "Bitramed Quiz Setup",
       quiz: "Bitramed Quiz",
       results: "Bitramed Results",
       "past-paper-topics": "Bitramed Past Papers",
@@ -1234,7 +1234,7 @@ export const learnerCore = {
       "click",
       (event) => {
         const trigger = event.target.closest?.(
-          ".browse-card-button, .selection-card, .quizlist-card, .setup-mode-card"
+          ".browse-card-button, .selection-card, .quizlist-card"
         );
         if (!trigger || trigger.disabled || trigger.classList.contains("is-static")) {
           return;
@@ -1250,21 +1250,6 @@ export const learnerCore = {
   },
 
   bindAppEvents() {
-    this.bindOptionalClick("btn-start-study", () =>
-      this.navigate("quiz", {
-        level: this.state.currentLevel,
-        area: this.state.currentArea,
-        sub: this.state.currentSub,
-        type: this.state.currentType,
-        title: this.state.currentQuizTitle,
-        mode: "study",
-      })
-    );
-
-    this.bindOptionalClick("btn-start-exam", async () =>
-      this.startExamModeFlow()
-    );
-
     this.bindOptionalClick("btn-submit", () => this.handleSubmission());
     if (this.dom.quizForm) {
       this.dom.quizForm.addEventListener("submit", (event) => {
@@ -1311,8 +1296,8 @@ export const learnerCore = {
         type: this.state.currentType,
         title: this.state.currentQuizTitle,
         mode: this.state.mode,
-        duration:
-          this.state.mode === "exam" ? this.state.currentExamDurationMinutes : "",
+        duration: this.state.currentExamDurationMinutes || "",
+        negativeMarking: this.state.negativeMarking,
       });
     });
     this.bindOptionalClick("btn-results-back-list", () => {
@@ -1509,13 +1494,11 @@ export const learnerCore = {
     });
   },
 
-  openSearchResultByIndex(index) {
+  async openSearchResultByIndex(index) {
     const item = this.state.search.results[index];
     if (!item) return;
     this.closeSearch();
-    this.navigate("setup", {
-      quizId: item.quizId,
-    });
+    await this.openQuizSettings(item.quizId);
   },
 
   setRefreshButtonLoading(isLoading) {
@@ -1686,38 +1669,49 @@ export const learnerCore = {
           sub: cleanParams.sub || "",
           type: cleanParams.type || "",
         }).toString()}`;
-      case "setup": {
-        const quizId =
-          cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
-        return quizId
-          ? `/setup/?${new URLSearchParams({ quizId }).toString()}`
-          : "/home/";
-      }
       case "quiz": {
         const quizId =
           cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
+        const hasNegativeSetting = Object.hasOwn(
+          cleanParams,
+          "negativeMarking"
+        );
+        const negativeMarking = hasNegativeSetting
+          ? cleanParams.negativeMarking === true ||
+            cleanParams.negativeMarking === "true" ||
+            cleanParams.negativeMarking === "1"
+          : cleanParams.mode === "exam";
+        const mode =
+          cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/quiz/?${new URLSearchParams({
               quizId,
-              mode: cleanParams.mode || "study",
-              duration:
-                cleanParams.mode === "exam" && cleanParams.duration
-                  ? cleanParams.duration
-                  : "",
+              mode,
+              duration: cleanParams.duration || "",
+              negative: negativeMarking ? "1" : "0",
             }).toString()}`
           : "/home/";
       }
       case "results": {
         const quizId =
           cleanParams.quizId || this.getQuizIdForRouteParams(cleanParams);
+        const hasNegativeSetting = Object.hasOwn(
+          cleanParams,
+          "negativeMarking"
+        );
+        const negativeMarking = hasNegativeSetting
+          ? cleanParams.negativeMarking === true ||
+            cleanParams.negativeMarking === "true" ||
+            cleanParams.negativeMarking === "1"
+          : cleanParams.mode === "exam";
+        const mode =
+          cleanParams.duration || negativeMarking ? "exam" : "study";
         return quizId
           ? `/results/?${new URLSearchParams({
               quizId,
-              mode: cleanParams.mode || "study",
-              duration:
-                cleanParams.mode === "exam" && cleanParams.duration
-                  ? cleanParams.duration
-                  : "",
+              mode,
+              duration: cleanParams.duration || "",
+              negative: negativeMarking ? "1" : "0",
             }).toString()}`
           : "/home/";
       }
@@ -1834,6 +1828,7 @@ export const learnerCore = {
     this.state.currentQuizId = "";
     this.state.mode = "study";
     this.state.currentExamDurationMinutes = null;
+    this.state.negativeMarking = false;
     this.state.quizTimeRemainingSeconds = null;
     this.state.reviewWrongOnly = false;
     const pastPapers = this.getPastPaperState?.();
@@ -1875,25 +1870,32 @@ export const learnerCore = {
       this.state.currentArea = params.get("area") || "";
       this.state.currentSub = params.get("sub") || "";
       this.state.currentType = params.get("type") || "";
-    } else if (root === "setup") {
-      view = "setup";
-      this.state.currentQuizId = params.get("quizId") || "";
     } else if (root === "quiz") {
       view = "quiz";
       this.state.currentQuizId = params.get("quizId") || "";
-      this.state.mode = params.get("mode") || "study";
-      this.state.currentExamDurationMinutes =
-        this.state.mode === "exam"
-          ? this.normalizeExamDurationMinutes(params.get("duration"))
-          : null;
+      this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
+        params.get("duration")
+      );
+      this.state.negativeMarking = params.has("negative")
+        ? params.get("negative") === "1"
+        : params.get("mode") === "exam";
+      this.state.mode =
+        this.state.currentExamDurationMinutes || this.state.negativeMarking
+          ? "exam"
+          : "study";
     } else if (root === "results") {
       view = "results";
       this.state.currentQuizId = params.get("quizId") || "";
-      this.state.mode = params.get("mode") || "study";
-      this.state.currentExamDurationMinutes =
-        this.state.mode === "exam"
-          ? this.normalizeExamDurationMinutes(params.get("duration"))
-          : null;
+      this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
+        params.get("duration")
+      );
+      this.state.negativeMarking = params.has("negative")
+        ? params.get("negative") === "1"
+        : params.get("mode") === "exam";
+      this.state.mode =
+        this.state.currentExamDurationMinutes || this.state.negativeMarking
+          ? "exam"
+          : "study";
     } else if (root === "past-papers") {
       const [, pastPaperView = "topics"] = segments;
       if (pastPaperView === "exams") {
@@ -1932,7 +1934,7 @@ export const learnerCore = {
     this.syncPageState(view);
 
     if (
-      ["setup", "quiz", "results"].includes(view) &&
+      ["quiz", "results"].includes(view) &&
       this.state.currentQuizId
     ) {
       const found = await this.ensureQuizContextFromId(
@@ -1965,9 +1967,6 @@ export const learnerCore = {
         break;
       case "quizzes":
         await this.renderQuizList();
-        break;
-      case "setup":
-        await this.renderSetup();
         break;
       case "quiz":
         await this.renderQuiz();

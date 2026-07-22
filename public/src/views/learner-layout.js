@@ -11,7 +11,6 @@ export function renderLearnerShell() {
     subtopics: "Bitramed Subtopics",
     types: "Bitramed Question Types",
     quizzes: "Bitramed Quizzes",
-    setup: "Bitramed Quiz Setup",
     quiz: "Bitramed Quiz",
     results: "Bitramed Results",
     "past-paper-topics": "Bitramed Past Papers",
@@ -337,86 +336,6 @@ export function renderLearnerShell() {
         </div>
       </section>
     `,
-    setup: `
-      <section id="setup-view" class="view setup-view" hidden>
-        <div class="setup-shell">
-          <div class="setup-header">
-            <div class="setup-header-copy">
-              <div id="setup-kicker" class="setup-kicker-badge">Assessment 1</div>
-              <h2 id="setup-title" class="setup-title">Quiz Setup</h2>
-              <p id="setup-meta" class="setup-meta"></p>
-            </div>
-            <div class="setup-stat-bar">
-              <div class="setup-stat-cell">
-                <div id="setup-question-count" class="setup-stat-value">0</div>
-                <div class="setup-stat-key">Questions</div>
-              </div>
-              <div class="setup-stat-cell">
-                <div id="setup-attempt-count" class="setup-stat-value">0</div>
-                <div class="setup-stat-key">Attempts</div>
-              </div>
-              <div class="setup-stat-cell">
-                <div id="setup-best-score" class="setup-stat-value">--</div>
-                <div class="setup-stat-key">Best Score</div>
-              </div>
-            </div>
-          </div>
-          <div class="setup-main">
-            <div class="setup-mode-panel">
-              <div class="setup-section-label">
-                <span class="setup-section-title">Choose Your Mode</span>
-                <span class="setup-section-hint">Pick one</span>
-              </div>
-              <div class="setup-mode-actions">
-                <button id="btn-start-study" class="setup-mode-card study" type="button">
-                  <span class="setup-mode-visual-shell" aria-hidden="true">
-                    <svg class="setup-mode-book-icon" viewBox="0 0 24 24">
-                      <path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H20v18H8.5A2.5 2.5 0 0 0 6 22z"></path>
-                      <path d="M6 22V4.5"></path>
-                      <path d="M10 7h6"></path>
-                      <path d="M10 11h6"></path>
-                      <path d="M10 15h4"></path>
-                    </svg>
-                  </span>
-                  <span class="setup-mode-copy">
-                    <span class="setup-mode-name">Study mode</span>
-                    <span id="setup-study-note" class="setup-mode-note">Untimed practice with no negative marking. Reset freely and build recall.</span>
-                  </span>
-                  <span class="setup-mode-trailing">
-                    <span id="setup-study-action-label" class="setup-mode-status">Fresh start</span>
-                    <span class="setup-mode-arrow" aria-hidden="true">
-                      <svg viewBox="0 0 24 24">
-                        <path d="M8 6l10 6-10 6z"/>
-                      </svg>
-                    </span>
-                  </span>
-                </button>
-                <button id="btn-start-exam" class="setup-mode-card exam" type="button">
-                  <span class="setup-mode-visual-shell" aria-hidden="true">
-                    <span class="setup-mode-visual setup-mode-visual-exam">
-                      <span class="setup-mode-exam-center"></span>
-                      <span class="setup-mode-exam-hand"></span>
-                    </span>
-                  </span>
-                  <span class="setup-mode-copy">
-                    <span class="setup-mode-name">Exam mode</span>
-                    <span id="setup-exam-note" class="setup-mode-note">Strictly timed with negative marking (-1 per wrong answer) for a realistic rehearsal.</span>
-                  </span>
-                  <span class="setup-mode-trailing">
-                    <span id="setup-exam-action-label" class="setup-mode-status">Timed pass</span>
-                    <span class="setup-mode-arrow" aria-hidden="true">
-                      <svg viewBox="0 0 24 24">
-                        <path d="M8 6l10 6-10 6z"/>
-                      </svg>
-                    </span>
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    `,
     quiz: `
       <section id="quiz-view" class="view quiz-session-view" hidden>
         <div class="quiz-session-page">
@@ -439,8 +358,8 @@ export function renderLearnerShell() {
               <div class="quiz-session-stat-key">Answered</div>
             </div>
             <div class="quiz-session-stat-cell">
-              <div id="quiz-mode-stat" class="quiz-session-stat-value">Study</div>
-              <div class="quiz-session-stat-key">Mode</div>
+              <div id="quiz-mode-stat" class="quiz-session-stat-value">No time</div>
+              <div class="quiz-session-stat-key">Timer</div>
             </div>
           </div>
 
@@ -529,8 +448,8 @@ export function renderLearnerShell() {
               <div class="results-meta-label">Your Attempts</div>
             </div>
             <div class="results-meta-card">
-              <div id="results-mode-label" class="results-meta-value">Study</div>
-              <div class="results-meta-label">Mode</div>
+              <div id="results-mode-label" class="results-meta-value">No time · Standard marking</div>
+              <div class="results-meta-label">Settings</div>
             </div>
           </div>
 
@@ -820,7 +739,6 @@ export function renderLearnerShell() {
     viewTemplates.subtopics,
     viewTemplates.types,
     viewTemplates.quizzes,
-    viewTemplates.setup,
     viewTemplates.quiz,
     viewTemplates.results,
     viewTemplates.account,

@@ -289,6 +289,7 @@ const learnerResultSnapshot = {
   unanswered: 0,
   percent: 100,
   mode: "study",
+  negativeMarking: false,
   attemptCount: 1,
   context: {
     level: "Year 1",
@@ -297,6 +298,8 @@ const learnerResultSnapshot = {
     type: "tf",
     title: "Introduction Assessment 1",
     mode: "study",
+    durationMinutes: null,
+    negativeMarking: false,
   },
   results: [
     {
@@ -831,7 +834,7 @@ async function stubSupabase(
 async function seedLearnerResultSnapshot(page) {
   await page.addInitScript((snapshot) => {
     const key =
-      "quiz-app:user-1:result:Year 1|||Anatomy|||Introduction to Anatomy|||tf|||Introduction Assessment 1|||study";
+      "quiz-app:user-1:result:Year 1|||Anatomy|||Introduction to Anatomy|||tf|||Introduction Assessment 1|||study|||standard";
     window.localStorage.setItem(key, JSON.stringify(snapshot));
   }, learnerResultSnapshot);
 }
@@ -1315,25 +1318,36 @@ test("learner mobile flow routes render without collapsing layout", async ({
     ".quizlist-card-trailing"
   );
 
-  await page.goto("/setup/?quizId=quiz-tf-1");
-  await expect(page.locator("#setup-view")).toBeVisible();
-  await expect(page.locator("#setup-performance-card")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expectGridColumns(page, "#setup-view .setup-stat-bar", 3);
-  await expectTrailingStaysInline(
-    page,
-    "#setup-view .setup-mode-actions .setup-mode-card",
-    ".setup-mode-copy",
-    ".setup-mode-trailing"
+  await page.locator("#quiz-list .quizlist-card").first().click();
+  await expect(page.locator(".dialog-panel")).toBeVisible();
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toHaveClass(/is-selected/);
+  await expect(
+    page.locator('.dialog-wheel-option[data-value="0"]')
+  ).toContainText("No time");
+  await expect(page.locator(".dialog-switch-input")).not.toBeChecked();
+  await page.locator(".dialog-info-btn").focus();
+  await expect(page.locator(".dialog-info-tooltip")).toBeVisible();
+  await expect(page.locator(".dialog-info-tooltip")).toContainText(
+    "Wrong answers lose 1 point"
   );
+  await page.locator('.dialog-wheel-option[data-value="5"]').click();
+  await page.locator(".dialog-switch-input").check();
+  await page.locator(".dialog-btn.primary").click();
 
-  await page.goto("/quiz/?quizId=quiz-tf-1&mode=study");
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/quiz/");
+  await expect.poll(() => new URL(page.url()).searchParams.get("duration")).toBe("5");
+  await expect.poll(() => new URL(page.url()).searchParams.get("negative")).toBe("1");
   await expect(page.locator("#quiz-view")).toBeVisible();
+  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
+  await expect(page.locator("#quiz-mode-badge")).toContainText("5 MIN");
+  await expect(page.locator("#quiz-view .q-type-badge").first()).toContainText(
+    "NEGATIVE MARKING"
+  );
+  await expect(page.locator("#btn-submit")).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectGridColumns(page, "#quiz-view .quiz-session-stats", 3);
-  await expect(
-    page.locator("#quiz-view .quiz-session-mode-badge")
-  ).toContainText("TRUE / FALSE");
   await expect(page.locator("#quiz-view .tf-options").first()).toBeVisible();
   const quizShell = await page.evaluate(() => ({
     submitPosition:
@@ -1342,12 +1356,22 @@ test("learner mobile flow routes render without collapsing layout", async ({
   }));
   expect(quizShell.submitPosition).toBe("fixed");
 
-  await page.goto("/quiz/?quizId=quiz-tf-1&mode=exam&duration=5");
-  await expect(page.locator("#quiz-view")).toBeVisible();
-  await expect(page.locator("#quiz-progress-copy")).toContainText(":");
-  await expect(page.locator("#btn-submit")).toBeEnabled();
+  const quizCards = page.locator("#quiz-view .question-card");
+  for (let index = 0; index < (await quizCards.count()); index += 1) {
+    const card = quizCards.nth(index);
+    const question = await card.locator(".question-stem").textContent();
+    await card
+      .locator(question?.includes("anatomical position") ? ".opt-false" : ".opt-true")
+      .click();
+  }
+  await page.locator("#btn-submit").click();
+  await expect(page.locator("#results-view")).toBeVisible();
+  await expect(page.locator("#final-score")).toContainText("-2");
+  await expect(page.locator("#results-container")).toContainText(
+    "INCORRECT (-1)"
+  );
 
-  await page.goto("/results/?quizId=quiz-tf-1&mode=study");
+  await page.goto("/results/?quizId=quiz-tf-1&mode=study&negative=0");
   await expect(page.locator("#results-view")).toBeVisible();
   await expect(page.locator("#results-view .results-score-hero")).toBeVisible();
   await expect(

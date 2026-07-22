@@ -1,5 +1,5 @@
 import { TYPE_META } from "../core/type-meta.js";
-import { confirmDialog, durationPickerDialog } from "../ui/dialog.js";
+import { confirmDialog, quizSettingsDialog } from "../ui/dialog.js";
 
 export const learnerFeatures = {
   async refreshDatabase({
@@ -533,6 +533,18 @@ export const learnerFeatures = {
 
   formatModeLabel(mode) {
     return mode === "exam" ? "Exam" : "Study";
+  },
+
+  formatQuizSettingsLabel(snapshot) {
+    const durationMinutes = this.normalizeQuizDurationMinutes(
+      snapshot?.context?.durationMinutes
+    );
+    const negativeMarking =
+      snapshot?.negativeMarking ??
+      snapshot?.context?.negativeMarking ??
+      snapshot?.mode === "exam";
+    const timerLabel = durationMinutes ? `${durationMinutes} min` : "No time";
+    return `${timerLabel} · ${negativeMarking ? "Negative marking" : "Standard marking"}`;
   },
 
   formatAttemptScore(attempt) {
@@ -2242,6 +2254,7 @@ export const learnerFeatures = {
     title,
     mode,
     durationMinutes,
+    negativeMarking,
   }) {
     const parts = [
       level || "",
@@ -2254,6 +2267,7 @@ export const learnerFeatures = {
     if (mode === "exam") {
       parts.push(String(durationMinutes || ""));
     }
+    parts.push(negativeMarking ? "negative" : "standard");
     return parts.join("|||");
   },
 
@@ -2265,16 +2279,17 @@ export const learnerFeatures = {
       type: this.state.currentType,
       title: this.state.currentQuizTitle,
       mode: this.state.mode,
-      durationMinutes:
-        this.state.mode === "exam"
-          ? this.state.currentExamDurationMinutes
-          : null,
+      durationMinutes: this.state.currentExamDurationMinutes,
+      negativeMarking: this.state.negativeMarking,
     };
   },
 
-  normalizeExamDurationMinutes(value) {
+  normalizeQuizDurationMinutes(value) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      return null;
+    }
     const parsed = Number.parseInt(String(value ?? ""), 10);
-    if (!Number.isFinite(parsed)) return 10;
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
     return Math.min(30, Math.max(5, parsed));
   },
 
@@ -2285,28 +2300,34 @@ export const learnerFeatures = {
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   },
 
-  async startExamModeFlow() {
-    const durationMinutes = await durationPickerDialog({
-      title: "Set exam duration",
-      message: "Choose a timed pass between 5 and 30 minutes.",
-      submitLabel: "Start exam",
+  async openQuizSettings(quiz) {
+    const quizId = typeof quiz === "string" ? quiz : quiz?.id;
+    if (!quizId || !(await this.ensureQuizContextFromId(quizId))) return;
+
+    const quizMeta = this.getCurrentQuizMeta();
+    const settings = await quizSettingsDialog({
+      title: this.state.currentQuizTitle || "Start quiz",
+      message: "Choose your timer and marking settings.",
+      submitLabel: "Start quiz",
       cancelLabel: "Cancel",
       min: 5,
       max: 30,
-      initial: this.normalizeExamDurationMinutes(
-        this.state.currentExamDurationMinutes
-      ),
+      initial: null,
+      negativeMarking: false,
     });
-    if (!durationMinutes) return;
+    if (!settings || !quizMeta) return;
 
-    this.navigate("quiz", {
-      level: this.state.currentLevel,
-      area: this.state.currentArea,
-      sub: this.state.currentSub,
-      type: this.state.currentType,
-      title: this.state.currentQuizTitle,
-      mode: "exam",
-      duration: durationMinutes,
+    const durationMinutes = this.normalizeQuizDurationMinutes(
+      settings.durationMinutes
+    );
+    const negativeMarking = !!settings.negativeMarking;
+    const mode = durationMinutes || negativeMarking ? "exam" : "study";
+
+    await this.navigate("quiz", {
+      quizId: quizMeta.id,
+      mode,
+      duration: durationMinutes || "",
+      negativeMarking,
     });
   },
 
@@ -2319,10 +2340,11 @@ export const learnerFeatures = {
   },
 
   updateQuizTimerUI() {
-    if (this.state.mode !== "exam") return;
-    const fallbackSeconds =
-      this.normalizeExamDurationMinutes(this.state.currentExamDurationMinutes) *
-      60;
+    const durationMinutes = this.normalizeQuizDurationMinutes(
+      this.state.currentExamDurationMinutes
+    );
+    if (!durationMinutes) return;
+    const fallbackSeconds = durationMinutes * 60;
     const remainingSeconds =
       Number.isFinite(this.state.quizTimeRemainingSeconds) &&
       this.state.quizTimeRemainingSeconds !== null
@@ -2337,11 +2359,10 @@ export const learnerFeatures = {
 
   startQuizCountdown() {
     this.stopQuizCountdown();
-    if (this.state.mode !== "exam") return;
-
-    const durationMinutes = this.normalizeExamDurationMinutes(
+    const durationMinutes = this.normalizeQuizDurationMinutes(
       this.state.currentExamDurationMinutes
     );
+    if (!durationMinutes) return;
     this.state.currentExamDurationMinutes = durationMinutes;
     this.state.quizTimeRemainingSeconds = durationMinutes * 60;
     this.quizCountdownDeadline =
@@ -2503,11 +2524,11 @@ export const learnerFeatures = {
 
     if (this.dom.quizProgressCopy) {
       this.dom.quizProgressCopy.textContent =
-        this.state.mode === "exam"
+        this.state.currentExamDurationMinutes
           ? this.formatQuizTimer(
               Number.isFinite(this.state.quizTimeRemainingSeconds)
                 ? this.state.quizTimeRemainingSeconds
-                : this.normalizeExamDurationMinutes(
+                : this.normalizeQuizDurationMinutes(
                     this.state.currentExamDurationMinutes
                   ) * 60
             )
@@ -2590,9 +2611,8 @@ export const learnerFeatures = {
         .join(" / ");
     }
     if (this.dom.resultsModeLabel) {
-      this.dom.resultsModeLabel.textContent = this.formatModeLabel(
-        snapshot.mode
-      );
+      this.dom.resultsModeLabel.textContent =
+        this.formatQuizSettingsLabel(snapshot);
     }
     if (this.dom.finalScore) {
       this.dom.finalScore.innerHTML = `${score}<span class="results-score-denom">/${total}</span>`;
@@ -3407,98 +3427,11 @@ export const learnerFeatures = {
           </div>
         </div>
       `;
-      row.onclick = () => this.navigate("setup", { quizId: quizMeta.id });
-      row.onkeydown = (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          this.navigate("setup", { quizId: quizMeta.id });
-        }
-      };
+      row.onclick = () => void this.openQuizSettings(quizMeta);
       this.dom.quizList.appendChild(row);
     });
 
     this.showOnly("quiz-list-view");
-  },
-
-  async renderSetup() {
-    const quizMeta = this.getCurrentQuizMeta();
-    if (!quizMeta) {
-      this.navigate("quizzes", {
-        level: this.state.currentLevel,
-        area: this.state.currentArea,
-        sub: this.state.currentSub,
-        type: this.state.currentType,
-      });
-      return;
-    }
-
-    const meta = this.getTypeMeta(this.state.currentType);
-    const setupView = document.getElementById("setup-view");
-    const questionCount = Number(quizMeta.count || 0);
-    const currentModule =
-      this.state.quizzesByModule[
-        this.getModuleCacheKey(
-          this.state.currentLevel,
-          this.state.currentArea,
-          this.state.currentSub
-        )
-      ] || {};
-    const orderedQuizzes = Object.entries(
-      currentModule?.[this.state.currentType] || {}
-    )
-      .sort(([titleA], [titleB]) => this.compareDisplayOrder(titleA, titleB))
-      .map(([title, quiz]) => ({
-        ...quiz,
-        title,
-      }));
-    const quizIndex =
-      Math.max(
-        0,
-        orderedQuizzes.findIndex(
-          (quiz) =>
-            quiz.id === quizMeta.id ||
-            quiz.title === this.state.currentQuizTitle
-        )
-      ) + 1;
-
-    if (setupView) {
-      setupView.dataset.type = this.state.currentType;
-    }
-
-    document.getElementById("setup-kicker").textContent =
-      `Assessment ${quizIndex}`;
-    document.getElementById("setup-title").textContent =
-      this.state.currentQuizTitle;
-    document.getElementById("setup-meta").textContent =
-      `${this.state.currentSub} / ${questionCount} question${questionCount === 1 ? "" : "s"}`;
-    document.getElementById("setup-question-count").textContent =
-      String(questionCount);
-
-    let attemptStats = null;
-    try {
-      attemptStats = this.getAttemptStatsForQuizId(quizMeta.id);
-    } catch (error) {
-      console.error("Setup summary load failed:", error);
-      attemptStats = null;
-    }
-
-    const bestAttempt = this.getPreferredAttemptForDisplay(attemptStats);
-    const totalAttempts = Number(attemptStats?.totalAttempts || 0);
-    document.getElementById("setup-attempt-count").textContent =
-      String(totalAttempts);
-    document.getElementById("setup-best-score").textContent = bestAttempt
-      ? `${bestAttempt.percentage}%`
-      : "--";
-    document.getElementById("setup-study-action-label").textContent =
-      attemptStats?.study?.attempts ? "Continue" : "Fresh start";
-    document.getElementById("setup-exam-action-label").textContent =
-      attemptStats?.exam?.attempts ? "Try again" : "Timed pass";
-    document.getElementById("setup-study-note").textContent =
-      "Untimed practice with no negative marking. Reset freely and build recall.";
-    document.getElementById("setup-exam-note").textContent =
-      "Strictly timed with negative marking (-1 per wrong answer) for a realistic rehearsal.";
-
-    this.showOnly("setup-view");
   },
 
   async renderQuiz() {
@@ -3510,12 +3443,11 @@ export const learnerFeatures = {
     const restoreDraft = savedDraft;
 
     if (!questions.length) {
-      this.navigate("setup", {
+      this.navigate("quizzes", {
         level: this.state.currentLevel,
         area: this.state.currentArea,
         sub: this.state.currentSub,
         type: this.state.currentType,
-        title: this.state.currentQuizTitle,
       });
       return;
     }
@@ -3524,8 +3456,12 @@ export const learnerFeatures = {
     this.showOnly("quiz-view");
 
     const typeMeta = this.getTypeMeta(this.state.currentType);
-    const modeText = this.state.mode === "exam" ? "Exam Mode" : "Study Mode";
-    const modeStatText = this.state.mode === "exam" ? "Exam" : "Study";
+    const timerText = this.state.currentExamDurationMinutes
+      ? `${this.state.currentExamDurationMinutes} min`
+      : "No time";
+    const markingText = this.state.negativeMarking
+      ? "Negative marking"
+      : "Standard marking";
     const currentModule =
       this.state.quizzesByModule[
         this.getModuleCacheKey(
@@ -3555,10 +3491,13 @@ export const learnerFeatures = {
     if (quizView) {
       quizView.dataset.type = this.state.currentType;
       quizView.dataset.mode = this.state.mode;
+      quizView.dataset.negativeMarking = this.state.negativeMarking
+        ? "true"
+        : "false";
     }
 
     document.getElementById("quiz-mode-badge").textContent =
-      `${typeMeta.label.toUpperCase()} \u00b7 ${modeText.toUpperCase()}`;
+      `${typeMeta.label.toUpperCase()} \u00b7 ${timerText.toUpperCase()}`;
     if (this.dom.quizPageKicker) {
       this.dom.quizPageKicker.textContent = `ASSESSMENT ${quizIndex}`;
     }
@@ -3567,10 +3506,7 @@ export const learnerFeatures = {
     document.getElementById("quiz-page-meta").innerHTML =
       `<span>${this.escapeHtml(this.state.currentLevel)}</span> &middot; ${this.escapeHtml(this.state.currentArea)} &middot; ${this.escapeHtml(this.state.currentSub)}`;
     if (this.dom.quizModeStat) {
-      this.dom.quizModeStat.textContent =
-        this.state.mode === "exam" && this.state.currentExamDurationMinutes
-          ? `${this.state.currentExamDurationMinutes} min`
-          : modeStatText;
+      this.dom.quizModeStat.textContent = timerText;
     }
 
     const tfChoices = [
@@ -3655,7 +3591,7 @@ export const learnerFeatures = {
           <article class="question-card question-card-${item.type}">
             <div class="question-meta">
               <span class="q-number">QUESTION ${index + 1}</span>
-              <span class="q-type-badge">${modeText.toUpperCase()}</span>
+              <span class="q-type-badge">${markingText.toUpperCase()}</span>
             </div>
             <p class="question-stem">${this.escapeHtml(item.q)}</p>
             ${imageHtml}
@@ -3696,6 +3632,9 @@ export const learnerFeatures = {
     if (resultsView) {
       resultsView.dataset.type = this.state.currentType || "sba";
       resultsView.dataset.mode = this.state.mode || "study";
+      resultsView.dataset.negativeMarking = this.state.negativeMarking
+        ? "true"
+        : "false";
     }
     if (this.dom.toggleReviewWrongBtn) {
       this.dom.toggleReviewWrongBtn.hidden = true;
@@ -3703,12 +3642,11 @@ export const learnerFeatures = {
     const restored = this.renderResultsSnapshot(this.loadSavedQuizResult());
     if (!restored) {
       this.state.currentResultsSnapshot = null;
-      this.navigate("setup", {
+      this.navigate("quizzes", {
         level: this.state.currentLevel,
         area: this.state.currentArea,
         sub: this.state.currentSub,
         type: this.state.currentType,
-        title: this.state.currentQuizTitle,
       });
       return;
     }
@@ -3801,7 +3739,9 @@ export const learnerFeatures = {
     return {
       headline: "Room to sharpen.",
       copy:
-        snapshot?.mode === "exam"
+        (snapshot?.negativeMarking ??
+        snapshot?.context?.negativeMarking ??
+        snapshot?.mode === "exam")
           ? "Negative marking bit here. Review the explanations carefully, then try again with a steadier pace."
           : "Use the explanations below as your next lift, then retry while the material is still warm.",
     };
@@ -3861,7 +3801,9 @@ export const learnerFeatures = {
       ? "CORRECT (+1)"
       : isUnanswered
         ? "UNANSWERED (0)"
-        : "INCORRECT (0)";
+        : String(item.statusText || "").includes("-1")
+          ? "INCORRECT (-1)"
+          : "INCORRECT (0)";
     const answerGrid =
       isCorrect
         ? `
@@ -4163,23 +4105,13 @@ export const learnerFeatures = {
     const unansweredQuestions = Math.max(0, totalQuestions - answeredQuestions);
 
     if (unansweredQuestions > 0 && !force) {
-      if (this.state.mode === "study") {
-        const confirmed = await confirmDialog({
-          title: "Submit incomplete quiz",
-          message: `${unansweredQuestions} unanswered question${unansweredQuestions === 1 ? "" : "s"} remaining. Submit anyway?`,
-          submitLabel: "Submit anyway",
-          cancelLabel: "Keep answering",
-        });
-        if (!confirmed) return;
-      } else {
-        await confirmDialog({
-          title: "Finish exam before submitting",
-          message: `${unansweredQuestions} unanswered question${unansweredQuestions === 1 ? "" : "s"} remaining. You need to finish every question before you can submit in exam mode.`,
-          submitLabel: "Continue quiz",
-          cancelLabel: "Close",
-        });
-        return;
-      }
+      const confirmed = await confirmDialog({
+        title: "Submit incomplete quiz",
+        message: `${unansweredQuestions} unanswered question${unansweredQuestions === 1 ? "" : "s"} remaining. Submit anyway?`,
+        submitLabel: "Submit anyway",
+        cancelLabel: "Keep answering",
+      });
+      if (!confirmed) return;
     }
 
     this.quizSubmissionInFlight = true;
@@ -4196,7 +4128,7 @@ export const learnerFeatures = {
       let wrong = 0;
       let unanswered = 0;
       const total = questions.length;
-      const negativeMarking = this.state.mode === "exam";
+      const negativeMarking = this.state.negativeMarking;
       const results = [];
 
       questions.forEach((item, index) => {
@@ -4254,6 +4186,7 @@ export const learnerFeatures = {
       const resultsSnapshot = {
         context: this.getCurrentQuizContext(),
         mode: this.state.mode,
+        negativeMarking,
         score,
         total,
         correct,
@@ -4294,10 +4227,8 @@ export const learnerFeatures = {
       this.navigate("results", {
         quizId: quizMeta.id,
         mode: this.state.mode,
-        duration:
-          this.state.mode === "exam"
-            ? this.state.currentExamDurationMinutes
-            : "",
+        duration: this.state.currentExamDurationMinutes || "",
+        negativeMarking: this.state.negativeMarking,
       });
     } finally {
       this.quizSubmissionInFlight = false;
