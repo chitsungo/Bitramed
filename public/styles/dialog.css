@@ -47,12 +47,6 @@
   line-height: 1.6;
 }
 
-.dialog-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
 .dialog-wheel {
   position: relative;
   display: grid;
@@ -275,33 +269,6 @@
 .dialog-switch-input:focus-visible + .dialog-switch-track {
   outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
   outline-offset: 3px;
-}
-
-.dialog-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-mid);
-}
-
-.dialog-input {
-  width: 100%;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--ink);
-  border-radius: 0.85rem;
-  padding: 0.85rem 0.95rem;
-  outline: none;
-}
-
-.dialog-error {
-  border-radius: 0.85rem;
-  padding: 0.8rem 0.95rem;
-  background: rgba(181, 41, 42, 0.08);
-  border: 1px solid rgba(181, 41, 42, 0.18);
-  color: var(--danger);
-  font-size: 0.92rem;
 }
 
 .dialog-actions {

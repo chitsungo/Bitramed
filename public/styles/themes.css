@@ -48,14 +48,6 @@ body.dark-mode .settings-card-panel,
 body.dark-mode .account-stat-card,
 body.dark-mode .account-course-card,
 body.dark-mode .account-recent-card,
-body.dark-mode .admin-choice-card,
-body.dark-mode .admin-metric-card,
-body.dark-mode .admin-chart-panel,
-body.dark-mode .admin-surface-card,
-body.dark-mode .admin-highlight-card,
-body.dark-mode .admin-access-row,
-body.dark-mode .admin-access-feedback,
-body.dark-mode .admin-access-btn,
 body.dark-mode .dialog-panel {
   border-color: var(--border);
 }
@@ -78,18 +70,15 @@ body.dark-mode .selection-card-progress,
 body.dark-mode .browse-score-track,
 body.dark-mode .results-progress-track,
 body.dark-mode .results-summary-track,
-body.dark-mode .admin-bar-track,
 body.dark-mode .dashboard-overall-ring::after,
-body.dark-mode .access-overall-ring::after,
-body.dark-mode .admin-dashboard-ring::after {
+body.dark-mode .access-overall-ring::after {
   background: var(--track);
 }
 
 body.dark-mode .browse-score-fill,
 body.dark-mode .selection-card-progress-fill,
 body.dark-mode .progress-fill,
-body.dark-mode .results-summary-fill,
-body.dark-mode .admin-bar-fill {
+body.dark-mode .results-summary-fill {
   background: var(--accent);
 }
 
@@ -99,14 +88,12 @@ body.dark-mode .selection-locked-tag,
 body.dark-mode .question-format-pill,
 body.dark-mode .result-status,
 body.dark-mode .search-result-type,
-body.dark-mode .access-meta-chip,
-body.dark-mode .admin-access-status {
+body.dark-mode .access-meta-chip {
   background: var(--surface-strong);
 }
 
 body.dark-mode .browse-status-badge.status-locked,
-body.dark-mode .selection-locked-tag,
-body.dark-mode .admin-access-status.is-blocked {
+body.dark-mode .selection-locked-tag {
   background: rgba(219, 106, 99, 0.12);
   border-color: rgba(219, 106, 99, 0.2);
 }

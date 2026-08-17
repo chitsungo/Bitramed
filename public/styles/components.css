@@ -4,6 +4,7 @@
   --loading-loader-shadow: #000;
   --loading-loader-copy: var(--ink-light);
   --loading-loader-cube-shadow: 0 10px 24px rgba(24, 22, 15, 0.08);
+
   min-height: min(24rem, calc(100dvh - 8rem));
   display: grid;
   place-items: center;
@@ -211,14 +212,6 @@ body.dark-mode .loading-view-stage::before {
 .account-stat-card,
 .account-course-card,
 .account-recent-card,
-.admin-choice-card,
-.admin-metric-card,
-.admin-chart-panel,
-.admin-surface-card,
-.admin-highlight-card,
-.admin-access-row,
-.admin-access-feedback,
-.admin-access-btn,
 .search-overlay-shortcut,
 .access-meta-chip {
   background: var(--panel);
@@ -241,7 +234,6 @@ body.dark-mode .loading-view-stage::before {
 .access-action-btn,
 .quiz-submit-btn,
 .results-retry-btn,
-.admin-access-btn,
 .close-search-btn {
   min-height: 2.85rem;
   border-radius: var(--radius-sm);
@@ -272,7 +264,6 @@ body.dark-mode .loading-view-stage::before {
 .access-action-btn svg,
 .quiz-submit-btn svg,
 .results-retry-btn svg,
-.admin-access-btn svg,
 .close-search-btn svg,
 .menu-sheet-close svg,
 .browse-meta-item svg,
@@ -281,8 +272,7 @@ body.dark-mode .loading-view-stage::before {
 .selection-locked-tag svg,
 .search-bar-icon svg,
 .question-format-pill svg,
-.result-status svg,
-.admin-choice-chevron svg {
+.result-status svg {
   width: 1rem;
   height: 1rem;
   stroke: currentColor;
@@ -296,7 +286,6 @@ body.dark-mode .loading-view-stage::before {
 .topbar-user-pill,
 .menu-sheet-avatar,
 .topbar-user-avatar,
-.admin-choice-badge,
 .browse-card-badge,
 .selection-card-icon,
 .setup-mode-icon,
@@ -732,7 +721,6 @@ body.dark-mode .loading-view-stage::before {
 
 .search-input,
 .overlay-search-input,
-.dialog-input,
 .settings-switch-track {
   border: 1px solid var(--input-border);
   background: var(--input-bg);
@@ -786,7 +774,6 @@ body.dark-mode .loading-view-stage::before {
 .setup-type-badge,
 .quizlist-mode-badge,
 .quiz-session-mode-badge,
-.admin-access-status,
 .browse-status-badge,
 .selection-mode-tag,
 .selection-locked-tag,
@@ -830,14 +817,9 @@ body.dark-mode .loading-view-stage::before {
 .account-recent-card,
 .question-card,
 .results-hero-card,
-.result-card,
-.admin-choice-card,
-.admin-metric-card,
-.admin-chart-panel,
-.admin-surface-card,
-.admin-highlight-card,
-.admin-access-row {
+.result-card {
   border-radius: var(--radius-lg);
+  padding: 1rem;
 }
 
 .browse-card,
@@ -845,34 +827,9 @@ body.dark-mode .loading-view-stage::before {
 .settings-card,
 .account-stat-card,
 .account-course-card,
-.account-recent-card,
-.admin-choice-card,
-.admin-metric-card,
-.admin-chart-panel,
-.admin-surface-card,
-.admin-highlight-card,
-.admin-access-row {
+.account-recent-card {
   border-radius: var(--radius-md);
   box-shadow: none;
-}
-
-.browse-card,
-.selection-card,
-.quizlist-card,
-.setup-mode-card,
-.settings-card,
-.account-stat-card,
-.account-course-card,
-.account-recent-card,
-.question-card,
-.results-hero-card,
-.result-card,
-.admin-choice-card,
-.admin-metric-card,
-.admin-chart-panel,
-.admin-surface-card,
-.admin-highlight-card {
-  padding: 1rem;
 }
 
 .browse-card-band,
@@ -881,8 +838,7 @@ body.dark-mode .loading-view-stage::before {
 .selection-card-progress,
 .browse-score-track,
 .results-progress-track,
-.results-summary-track,
-.admin-bar-track {
+.results-summary-track {
   width: 100%;
   border-radius: 999px;
   background: var(--track);
@@ -895,8 +851,7 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .browse-card,
-.quizlist-card,
-.admin-choice-card {
+.quizlist-card {
   position: relative;
   overflow: hidden;
 }
@@ -912,8 +867,7 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .browse-card-band,
-.quizlist-card-band,
-.admin-choice-band {
+.quizlist-card-band {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0.24rem;
@@ -925,8 +879,7 @@ body.dark-mode .loading-view-stage::before {
 .selection-card-progress-fill,
 .browse-score-fill,
 .progress-fill,
-.results-summary-fill,
-.admin-bar-fill {
+.results-summary-fill {
   height: 100%;
   background: var(--accent);
   border-radius: inherit;
@@ -967,10 +920,7 @@ body.dark-mode .loading-view-stage::before {
 .quizlist-card-head,
 .results-page-header-top,
 .results-percentage-row,
-.settings-action-row,
-.admin-choice-inner,
-.admin-access-row-head,
-.admin-access-actions {
+.settings-action-row {
   display: flex;
   align-items: start;
   justify-content: space-between;
@@ -979,8 +929,7 @@ body.dark-mode .loading-view-stage::before {
 
 .browse-card-badge,
 .selection-card-icon,
-.setup-mode-icon,
-.admin-choice-badge {
+.setup-mode-icon {
   width: 2.9rem;
   height: 2.9rem;
   border-radius: 1rem;
@@ -994,8 +943,7 @@ body.dark-mode .loading-view-stage::before {
 
 .browse-card-content,
 .selection-card-left,
-.quizlist-card-body,
-.admin-choice-copy {
+.quizlist-card-body {
   flex: 1;
   min-width: 0;
 }
@@ -1016,11 +964,7 @@ body.dark-mode .loading-view-stage::before {
 .setup-mode-name,
 .question-text,
 .account-course-title,
-.account-recent-title,
-.admin-choice-title,
-.admin-metric-value,
-.admin-highlight-value,
-.admin-surface-score {
+.account-recent-title {
   color: var(--ink);
 }
 
@@ -1029,8 +973,7 @@ body.dark-mode .loading-view-stage::before {
 .quizlist-card-title,
 .setup-mode-name,
 .account-course-title,
-.account-recent-title,
-.admin-choice-title {
+.account-recent-title {
   font-size: 1.12rem;
   font-weight: 700;
   line-height: 1.25;
@@ -1041,18 +984,14 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .browse-card-meta,
-.results-hero-metrics,
-.admin-surface-meta-row,
-.admin-access-meta {
+.results-hero-metrics {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.55rem;
 }
 
-.browse-meta-item,
-.admin-surface-chip,
-.admin-access-chip {
+.browse-meta-item {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -1079,69 +1018,52 @@ body.dark-mode .loading-view-stage::before {
   height: 0.34rem;
 }
 
-.browse-card-chevron,
-.admin-choice-chevron {
+.browse-card-chevron {
   color: var(--ink-light);
 }
 
-.tone-1 .browse-card-band-fill,
-.tone-access .admin-choice-band,
-.tone-access .admin-choice-badge {
+.tone-1 .browse-card-band-fill {
   background: var(--accent);
   color: #fff;
   border-color: transparent;
 }
 
-.tone-2 .browse-card-band-fill,
-.tone-analytics .admin-choice-band,
-.tone-analytics .admin-choice-badge {
+.tone-2 .browse-card-band-fill {
   background: var(--accent-gold);
   color: #fff;
   border-color: transparent;
 }
 
-.tone-3 .browse-card-band-fill,
-.tone-neutral .admin-choice-band,
-.tone-neutral .admin-choice-badge {
+.tone-3 .browse-card-band-fill {
   background: var(--accent-2);
   color: #fff;
   border-color: transparent;
 }
 
-.tone-4 .browse-card-band-fill,
-.tone-danger .admin-choice-band,
-.tone-danger .admin-choice-badge {
+.tone-4 .browse-card-band-fill {
   background: var(--accent-rose);
   color: #fff;
   border-color: transparent;
 }
 
 .browse-status-badge.status-active,
-.admin-access-status.is-active,
 .results-summary-fill.success,
 .progress-fill.success {
   color: var(--success);
 }
 
-.browse-status-badge.status-fresh,
-.admin-access-status.is-no-access {
+.browse-status-badge.status-fresh {
   color: var(--accent);
 }
 
-.admin-access-status.is-expired {
-  color: var(--warning);
-}
-
 .browse-status-badge.status-locked,
-.admin-access-status.is-blocked,
 .progress-fill.fail,
 .results-summary-fill.fail {
   color: var(--danger);
 }
 
 .browse-status-badge.status-locked,
-.selection-locked-tag,
-.admin-access-status.is-blocked {
+.selection-locked-tag {
   background: rgba(181, 41, 42, 0.08);
   border-color: rgba(181, 41, 42, 0.18);
 }
@@ -1149,11 +1071,6 @@ body.dark-mode .loading-view-stage::before {
 .browse-card.locked,
 .selection-card.locked {
   opacity: 0.88;
-}
-
-.admin-choice-card.is-selected {
-  border-color: rgba(32, 94, 91, 0.22);
-  background: var(--surface-strong);
 }
 
 .access-action-btn.is-primary,
@@ -1164,8 +1081,7 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .dashboard-overall-ring,
-.access-overall-ring,
-.admin-dashboard-ring {
+.access-overall-ring {
   width: 8.75rem;
   aspect-ratio: 1;
   border-radius: 999px;
@@ -1179,8 +1095,7 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .dashboard-overall-ring::before,
-.access-overall-ring::before,
-.admin-dashboard-ring::before {
+.access-overall-ring::before {
   content: "";
   position: absolute;
   inset: 0.65rem;
@@ -1189,8 +1104,7 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .dashboard-overall-ring::after,
-.access-overall-ring::after,
-.admin-dashboard-ring::after {
+.access-overall-ring::after {
   content: "";
   position: absolute;
   inset: auto 1rem 1rem;
@@ -1238,8 +1152,6 @@ body.dark-mode .loading-view-stage::before {
 .question-number,
 .result-answer-label,
 .account-stat-label,
-.admin-metric-label,
-.admin-highlight-label,
 .settings-meta-label {
   font-size: 0.72rem;
   font-weight: 700;
@@ -1249,14 +1161,12 @@ body.dark-mode .loading-view-stage::before {
 }
 
 .result-card.correct,
-.result-answer-box.correct-answer,
-.admin-access-feedback.success {
+.result-answer-box.correct-answer {
   background: rgba(53, 100, 69, 0.08);
   border-color: rgba(53, 100, 69, 0.18);
 }
 
-.result-card.incorrect,
-.admin-access-feedback.error {
+.result-card.incorrect {
   background: rgba(181, 41, 42, 0.08);
   border-color: rgba(181, 41, 42, 0.18);
 }
@@ -1288,7 +1198,6 @@ body.dark-mode .loading-view-stage::before {
 .access-action-btn:hover,
 .quiz-submit-btn:hover,
 .results-retry-btn:hover,
-.admin-access-btn:hover,
 .close-search-btn:hover {
   background: var(--surface-soft);
 }
@@ -1314,13 +1223,7 @@ body.dark-mode .loading-view-stage::before {
 .settings-card:hover,
 .account-stat-card:hover,
 .account-course-card:hover,
-.account-recent-card:hover,
-.admin-choice-card:hover,
-.admin-metric-card:hover,
-.admin-chart-panel:hover,
-.admin-surface-card:hover,
-.admin-highlight-card:hover,
-.admin-access-row:hover {
+.account-recent-card:hover {
   border-color: var(--border-strong);
   background: var(--surface-strong);
   box-shadow: var(--shadow-strong);
@@ -1395,17 +1298,13 @@ body.dark-mode .loading-view-stage::before {
 
   .search-bar-row,
   .results-page-header-top,
-  .results-percentage-row,
-  .admin-choice-inner,
-  .admin-access-row-head,
-  .admin-access-actions {
+  .results-percentage-row {
     flex-direction: column;
     align-items: stretch;
   }
 
   .dashboard-overall-ring,
-  .access-overall-ring,
-  .admin-dashboard-ring {
+  .access-overall-ring {
     width: 7.25rem;
   }
 }

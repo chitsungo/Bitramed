@@ -120,7 +120,6 @@ export function confirmDialog({
     });
   });
 }
-
 export function quizSettingsDialog({
   title = "Start quiz",
   message = "",
@@ -295,119 +294,6 @@ export function quizSettingsDialog({
       });
       panel.focus();
       submitButton.focus();
-    });
-  });
-}
-
-export function formDialog({
-  title = "Update",
-  message = "",
-  submitLabel = "Save",
-  cancelLabel = "Cancel",
-  danger = false,
-  fields = []
-} = {}) {
-  return new Promise((resolve) => {
-    const root = ensureDialogRoot();
-    const { overlay, panel, form, fields: fieldsRoot, cancelButton } = buildDialogShell({
-      title,
-      message,
-      submitLabel,
-      cancelLabel,
-      danger
-    });
-
-    const fieldRefs = [];
-    const errorNode = document.createElement("div");
-    errorNode.className = "dialog-error";
-    errorNode.hidden = true;
-
-    fields.forEach((field) => {
-      const wrap = document.createElement("label");
-      wrap.className = "dialog-field";
-
-      const label = document.createElement("span");
-      label.className = "dialog-label";
-      label.textContent = field.label;
-
-      const input = field.multiline ? document.createElement("textarea") : document.createElement("input");
-      input.className = "dialog-input";
-      input.name = field.id;
-      input.placeholder = field.placeholder || "";
-      input.value = field.value ?? "";
-      input.required = !!field.required;
-      input.autocomplete = "off";
-      if (!field.multiline) {
-        input.type = field.type || "text";
-      } else {
-        input.rows = field.rows || 4;
-      }
-      if (field.min !== undefined) input.min = String(field.min);
-      if (field.max !== undefined) input.max = String(field.max);
-      if (field.step !== undefined) input.step = String(field.step);
-
-      wrap.append(label, input);
-      fieldsRoot.appendChild(wrap);
-      fieldRefs.push({ field, input });
-    });
-
-    form.insertBefore(errorNode, form.lastElementChild);
-
-    const close = (result) => {
-      document.removeEventListener("keydown", onKeyDown);
-      teardownDialog(root, overlay);
-      resolve(result);
-    };
-
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        close(null);
-      }
-    };
-
-    cancelButton.addEventListener("click", () => close(null));
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) close(null);
-    });
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-
-      const result = {};
-      for (const { field, input } of fieldRefs) {
-        const value = String(input.value || "").trim();
-        if (field.required && !value) {
-          errorNode.hidden = false;
-          errorNode.textContent = `${field.label} is required.`;
-          input.focus();
-          return;
-        }
-
-        if (field.type === "number" && value) {
-          const parsed = Number.parseInt(value, 10);
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            errorNode.hidden = false;
-            errorNode.textContent = `${field.label} must be a positive number.`;
-            input.focus();
-            return;
-          }
-          result[field.id] = parsed;
-        } else {
-          result[field.id] = value || null;
-        }
-      }
-
-      close(result);
-    });
-
-    root.appendChild(overlay);
-    document.addEventListener("keydown", onKeyDown);
-    requestAnimationFrame(() => {
-      const firstInput = form.querySelector(".dialog-input");
-      if (firstInput) {
-        firstInput.focus();
-      } else {
-        panel.focus();
-      }
     });
   });
 }

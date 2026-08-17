@@ -3,23 +3,37 @@
   "version": "3.1.0",
   "private": true,
   "description": "quiz app",
+  "workspaces": [
+    "apps/admin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "prestart": "npm run build",
     "start": "http-server public -a 0.0.0.0 -p 3000 -c-1",
-    "build": "npm run build:css && npm run build:app-js",
+    "dev:admin": "concurrently -k -s first \"npm --workspace @bitramed/admin run dev -- -p 3001\" \"vite --config vite.admin-dev.config.mjs\"",
+    "build": "npm run build:learner && npm run build:admin",
+    "build:learner": "npm run build:css && npm run build:app-js",
+    "build:admin": "npm --workspace @bitramed/admin run build && node scripts/publish-admin.mjs",
     "build:css": "npm run build:tailwind && npm run build:app-css",
     "build:tailwind": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css",
     "build:app-css": "node scripts/build-app-css.mjs",
     "build:app-js": "node scripts/build-app-js.mjs",
     "watch:css": "tailwindcss -i ./public/styles/tw-input.css -o ./public/styles/tailwind.css --watch",
     "test:unit": "node --test tests/*.unit.mjs",
+    "test:admin": "npm --workspace @bitramed/admin run test",
     "lint:js": "eslint public/src scripts tests --ext .js,.mjs",
-    "lint:css": "stylelint \"style.css\" \"styles/{tokens,base,layout,components,themes,auth,learner,admin,dialog}.css\"",
-    "format": "prettier --write \"**/*.{js,json,css,html,mjs}\"",
-    "format:check": "prettier --check \"**/*.{js,json,css,html,mjs}\"",
+    "lint:admin": "npm --workspace @bitramed/admin run lint",
+    "typecheck:admin": "npm --workspace @bitramed/admin run typecheck",
+    "lint:css": "stylelint \"public/style.css\" \"public/styles/{tokens,base,layout,components,themes,auth,learner,past-papers,dialog}.css\"",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,html,mjs,md}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,html,mjs,md}\"",
     "test:e2e": "powershell -ExecutionPolicy Bypass -File scripts/run-e2e.ps1"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9.25.1",
     "http-server": "^14.1.1",
     "lightningcss": "^1.32.0",
