@@ -299,6 +299,9 @@ const learnerPastPaperUnits = [
 const learnerPastPaperReview = {
   attempt: {
     setId: "past-paper-set-1",
+    title: "Anatomy Past Paper 1",
+    yearLabel: "Year 1",
+    topicLabel: "Anatomy",
     score: 0,
     totalMarks: 2,
     correct: 1,
@@ -359,6 +362,7 @@ const learnerPastPaperAttempts = [
 ];
 
 const learnerAccountSummary = {
+  schemaVersion: 1,
   attemptsCount: 2,
   quizzesDoneCount: 2,
   averagePercentage: 76,
@@ -366,6 +370,23 @@ const learnerAccountSummary = {
   modeStats: {
     study: { attemptsCount: 1, averagePercentage: 72 },
     exam: { attemptsCount: 1, averagePercentage: 80 },
+  },
+  sectionStats: {
+    normal: {
+      attemptsCount: 2,
+      assessmentsDoneCount: 2,
+      averagePercentage: 76,
+    },
+    exam: {
+      attemptsCount: 0,
+      assessmentsDoneCount: 0,
+      averagePercentage: 0,
+    },
+    combined: {
+      attemptsCount: 2,
+      assessmentsDoneCount: 2,
+      averagePercentage: 76,
+    },
   },
   courseStats: [
     {
@@ -746,6 +767,71 @@ async function stubSupabase(
     },
   ];
 
+  const homeLevels = [
+    ...new Map(
+      learnerCatalogRows.map((row) => [
+        row.level_id,
+        {
+          levelId: row.level_id,
+          name: row.level,
+          displayOrder: Number(row.display_order || 0),
+        },
+      ])
+    ).values(),
+  ].map((level) => {
+    const courseCount = new Set(
+      learnerCatalogRows
+        .filter((row) => row.level_id === level.levelId)
+        .map((row) => row.course_id)
+    ).size;
+    const levelQuizIds = new Set(
+      learnerQuizCatalogRows
+        .filter((row) => row.level === level.name)
+        .map((row) => row.quiz_id)
+    );
+    const doneCount = new Set(
+      learnerAttemptRows
+        .filter((row) => levelQuizIds.has(row.quiz_id))
+        .map((row) => row.quiz_id)
+    ).size;
+    const totalCount = levelQuizIds.size;
+    return {
+      ...level,
+      courseCount,
+      doneCount,
+      totalCount,
+      percent: totalCount ? Math.round((doneCount / totalCount) * 100) : 0,
+    };
+  });
+  const allHomeAttempts = [...learnerAttemptRows, ...learnerPastPaperAttempts];
+  const homeBootstrapPayload = {
+    schemaVersion: 1,
+    generatedAt: "2026-04-01T08:00:00Z",
+    access: {
+      status: hasAccess ? "active" : "no_access",
+      hasAccess,
+      blockReason: "",
+      accessExpiresAt: hasAccess ? "2026-05-01T08:00:00Z" : null,
+    },
+    themePreference: theme,
+    dashboard: {
+      activeYears: new Set(learnerAttemptRows.map((row) => row.level)).size,
+      completedCount:
+        new Set(learnerAttemptRows.map((row) => row.quiz_id)).size +
+        new Set(learnerPastPaperAttempts.map((row) => row.set_id)).size,
+      averageScore: allHomeAttempts.length
+        ? Math.round(
+            allHomeAttempts.reduce(
+              (sum, row) => sum + Number(row.percentage || 0),
+              0
+            ) / allHomeAttempts.length
+          )
+        : 0,
+      levels: hasAccess ? homeLevels : [],
+      pastPaperYears: hasAccess ? learnerPastPaperYears : [],
+    },
+  };
+
   await page.route(
     "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
     async (route) => {
@@ -767,6 +853,7 @@ async function stubSupabase(
         const learnerPastPaperUnits = ${JSON.stringify(learnerPastPaperUnits)};
         const learnerPastPaperReview = ${JSON.stringify(learnerPastPaperReview)};
         const learnerPastPaperAttempts = ${JSON.stringify(learnerPastPaperAttempts)};
+        const learnerHomeBootstrap = ${JSON.stringify(homeBootstrapPayload)};
 
         const initialAuthState = {
           currentUser: ${JSON.stringify(
@@ -980,15 +1067,21 @@ async function stubSupabase(
 
             return {
               auth: {
-                getUser: () => Promise.resolve({ data: { user: authState.currentUser ? clone(authState.currentUser) : null }, error: null }),
-                getSession: () => Promise.resolve({
-                  data: {
-                    session: authState.currentUser
-                      ? { user: clone(authState.currentUser) }
-                      : null
-                  },
-                  error: null
-                }),
+                getUser: () => {
+                  recordCall({ name: "auth.getUser" });
+                  return Promise.resolve({ data: { user: authState.currentUser ? clone(authState.currentUser) : null }, error: null });
+                },
+                getSession: () => {
+                  recordCall({ name: "auth.getSession" });
+                  return Promise.resolve({
+                    data: {
+                      session: authState.currentUser
+                        ? { user: clone(authState.currentUser) }
+                        : null
+                    },
+                    error: null
+                  });
+                },
                 onAuthStateChange: (callback) => {
                   authState.listeners.push(callback);
                   if (authState.recoverySession && authState.currentUser) {
@@ -1045,6 +1138,204 @@ async function stubSupabase(
                 return queryBuilder(table);
               },
               rpc(name, params = {}) {
+                recordCall({ name: "rpc", rpcName: name, params: clone(params) });
+                if (name === "app_home_bootstrap") {
+                  return Promise.resolve({ data: clone(learnerHomeBootstrap), error: null });
+                }
+                if (name === "app_shell_bootstrap") {
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      generatedAt: learnerHomeBootstrap.generatedAt,
+                      access: clone(learnerHomeBootstrap.access),
+                      themePreference: learnerHomeBootstrap.themePreference
+                    },
+                    error: null
+                  });
+                }
+                if (name === "app_year_overview") {
+                  const level = params.p_level || "";
+                  const dashboardLevel = (learnerHomeBootstrap.dashboard.levels || [])
+                    .find((row) => row.name === level);
+                  const paper = learnerPastPaperYears.find((row) => row.year_label === level) || null;
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      level,
+                      normal: dashboardLevel ? {
+                        levelId: dashboardLevel.levelId,
+                        courseCount: dashboardLevel.courseCount,
+                        doneCount: dashboardLevel.doneCount,
+                        totalCount: dashboardLevel.totalCount,
+                        percent: dashboardLevel.percent
+                      } : null,
+                      pastPaper: clone(paper)
+                    },
+                    error: null
+                  });
+                }
+                if (name === "app_browse_courses") {
+                  const level = params.p_level || "";
+                  const courseRows = learnerCatalogRows.filter((row) => row.level === level);
+                  const attemptedIds = new Set(learnerAttemptRows.map((row) => row.quiz_id));
+                  const courses = courseRows.map((course) => {
+                    const subtopics = learnerSubtopicsByCourse[[level, course.area].join("|||")] || [];
+                    const quizzes = learnerQuizCatalogRows.filter((row) =>
+                      row.level === level && row.area === course.area
+                    );
+                    const doneCount = quizzes.filter((row) => attemptedIds.has(row.quiz_id)).length;
+                    return {
+                      courseId: course.course_id,
+                      name: course.area,
+                      moduleCount: subtopics.length,
+                      totalCount: quizzes.length,
+                      doneCount,
+                      percent: quizzes.length ? Math.round(doneCount / quizzes.length * 100) : 0
+                    };
+                  });
+                  return Promise.resolve({ data: { schemaVersion: 1, level, courses }, error: null });
+                }
+                if (name === "app_browse_subtopics") {
+                  const level = params.p_level || "";
+                  const area = params.p_area || "";
+                  const rows = learnerSubtopicsByCourse[[level, area].join("|||")] || [];
+                  const attemptedIds = new Set(learnerAttemptRows.map((row) => row.quiz_id));
+                  const subtopics = rows.map((row) => {
+                    const quizzes = learnerQuizCatalogRows.filter((quiz) =>
+                      quiz.level === level && quiz.area === area && quiz.sub === row.subtopic_name
+                    );
+                    const doneCount = quizzes.filter((quiz) => attemptedIds.has(quiz.quiz_id)).length;
+                    return {
+                      subtopicId: row.subtopic_id,
+                      name: row.subtopic_name,
+                      totalCount: quizzes.length,
+                      doneCount,
+                      percent: quizzes.length ? Math.round(doneCount / quizzes.length * 100) : 0
+                    };
+                  });
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      level,
+                      area,
+                      courseId: rows[0]?.course_id || "",
+                      subtopics
+                    },
+                    error: null
+                  });
+                }
+                if (name === "app_browse_types") {
+                  const level = params.p_level || "";
+                  const area = params.p_area || "";
+                  const sub = params.p_sub || "";
+                  const quizzes = learnerQuizCatalogRows.filter((row) =>
+                    row.level === level && row.area === area && row.sub === sub
+                  );
+                  const attemptedIds = new Set(learnerAttemptRows.map((row) => row.quiz_id));
+                  const types = ["sba", "tf"].map((type) => {
+                    const rows = quizzes.filter((row) => row.question_type === type);
+                    const completedCount = rows.filter((row) => attemptedIds.has(row.quiz_id)).length;
+                    return {
+                      type,
+                      quizCount: rows.length,
+                      questionCount: rows.reduce((sum, row) => sum + Number(row.question_count || 0), 0),
+                      completedCount,
+                      percent: rows.length ? Math.round(completedCount / rows.length * 100) : 0
+                    };
+                  });
+                  const totalQuizCount = types.reduce((sum, row) => sum + row.quizCount, 0);
+                  const completedQuizCount = types.reduce((sum, row) => sum + row.completedCount, 0);
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      level,
+                      area,
+                      sub,
+                      totalQuestions: types.reduce((sum, row) => sum + row.questionCount, 0),
+                      totalQuizCount,
+                      completedQuizCount,
+                      percent: totalQuizCount ? Math.round(completedQuizCount / totalQuizCount * 100) : 0,
+                      types
+                    },
+                    error: null
+                  });
+                }
+                if (name === "app_browse_quizzes") {
+                  const level = params.p_level || "";
+                  const area = params.p_area || "";
+                  const sub = params.p_sub || "";
+                  const type = params.p_type || "";
+                  const attemptRowsByQuiz = Object.groupBy
+                    ? Object.groupBy(learnerAttemptRows, (row) => row.quiz_id)
+                    : learnerAttemptRows.reduce((grouped, row) => {
+                        (grouped[row.quiz_id] ||= []).push(row);
+                        return grouped;
+                      }, {});
+                  const quizzes = learnerQuizCatalogRows.filter((row) =>
+                    row.level === level && row.area === area && row.sub === sub && row.question_type === type
+                  ).map((row) => {
+                    const attempts = attemptRowsByQuiz[row.quiz_id] || [];
+                    return {
+                      quizId: row.quiz_id,
+                      title: row.quiz_title,
+                      questionCount: row.question_count,
+                      totalAttempts: attempts.length,
+                      bestPercentage: attempts.length
+                        ? Math.max(...attempts.map((attempt) => Number(attempt.percentage || 0)))
+                        : null
+                    };
+                  });
+                  const completed = quizzes.filter((row) => row.totalAttempts > 0);
+                  const subtopics = learnerSubtopicsByCourse[[level, area].join("|||")] || [];
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      level,
+                      area,
+                      sub,
+                      type,
+                      topicIndex: Math.max(1, subtopics.findIndex((row) => row.subtopic_name === sub) + 1),
+                      summary: {
+                        assessmentCount: quizzes.length,
+                        completedCount: completed.length,
+                        averageBestPercentage: completed.length
+                          ? Math.round(completed.reduce((sum, row) => sum + row.bestPercentage, 0) / completed.length)
+                          : null
+                      },
+                      quizzes
+                    },
+                    error: null
+                  });
+                }
+                if (name === "app_account_page") {
+                  return Promise.resolve({ data: clone(learnerAccountSummary), error: null });
+                }
+                if (name === "app_quiz_search") {
+                  const query = String(params.p_query || "").trim().toLowerCase();
+                  const limit = Number(params.p_limit || (query ? 18 : 12));
+                  const matches = learnerQuizCatalogRows.filter((row) =>
+                    !query || [row.level, row.area, row.sub, row.quiz_title]
+                      .join(" ").toLowerCase().includes(query)
+                  );
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      browseMode: !query,
+                      totalItems: learnerQuizCatalogRows.length,
+                      totalMatches: matches.length,
+                      results: matches.slice(0, limit).map((row) => ({
+                        quizId: row.quiz_id,
+                        level: row.level,
+                        area: row.area,
+                        sub: row.sub,
+                        type: row.question_type,
+                        title: row.quiz_title,
+                        count: row.question_count
+                      }))
+                    },
+                    error: null
+                  });
+                }
                 if (name === "app_my_access_status") {
                   return Promise.resolve({
                     data: {
@@ -1100,6 +1391,35 @@ async function stubSupabase(
                   }));
                   return Promise.resolve({ data: clone(rows), error: null });
                 }
+                if (name === "app_quiz_context" || name === "app_quiz_session") {
+                  const quizId = params.p_quiz_id || "";
+                  const descriptor = learnerQuizCatalogRows.find((row) => row.quiz_id === quizId) || null;
+                  const siblings = descriptor
+                    ? learnerQuizCatalogRows
+                        .filter((row) =>
+                          row.level === descriptor.level
+                          && row.area === descriptor.area
+                          && row.sub === descriptor.sub
+                          && row.question_type === descriptor.question_type
+                        )
+                        .map((row) => ({ quizId: row.quiz_id, title: row.quiz_title }))
+                    : [];
+                  const payload = {
+                    schemaVersion: 1,
+                    descriptor: clone(descriptor),
+                    siblings: clone(siblings)
+                  };
+                  if (name === "app_quiz_session") {
+                    const state = ensureTestState();
+                    const progressKey = params.p_progress_key || "";
+                    const savedKey = ["user-1", "quiz", quizId, progressKey].join("|||");
+                    payload.questions = clone(learnerQuestionsByQuizId[quizId] || []);
+                    payload.progress = progressKey
+                      ? clone(state.assessmentProgress[savedKey] || null)
+                      : null;
+                  }
+                  return Promise.resolve({ data: payload, error: null });
+                }
                 if (name === "app_quiz_catalog_rows") {
                   const ids = Array.isArray(params.p_quiz_ids) ? params.p_quiz_ids : null;
                   const rows = ids
@@ -1127,6 +1447,24 @@ async function stubSupabase(
                 }
                 if (name === "app_past_paper_units") {
                   return Promise.resolve({ data: clone(learnerPastPaperUnits), error: null });
+                }
+                if (name === "app_past_paper_session") {
+                  const setId = params.p_set_id || "";
+                  const paper = learnerPastPaperExams.find((row) => row.set_id === setId) || null;
+                  const state = ensureTestState();
+                  const progressKey = params.p_progress_key || "";
+                  const savedKey = ["user-1", "past_paper", setId, progressKey].join("|||");
+                  return Promise.resolve({
+                    data: {
+                      schemaVersion: 1,
+                      paper: clone(paper),
+                      units: paper ? clone(learnerPastPaperUnits) : [],
+                      progress: progressKey
+                        ? clone(state.assessmentProgress[savedKey] || null)
+                        : null
+                    },
+                    error: null
+                  });
                 }
                 if (name === "app_submit_past_paper_attempt") {
                   recordCall({ name, params: clone(params) });
@@ -1474,6 +1812,33 @@ test("learner dashboard shell loads", async ({ page }) => {
   expect(menuHost.parentId).toBe("");
 });
 
+test("cold learner homepage uses one compact database bootstrap", async ({
+  page,
+}) => {
+  await stubSupabase(page, { signedIn: true, hasAccess: true });
+  await page.goto("/home/");
+  await expect(page.locator("#dashboard-view")).toBeVisible();
+
+  const calls = await readSupabaseCallLog(page);
+  expect(calls.filter((call) => call.name === "auth.getSession")).toHaveLength(
+    1
+  );
+  expect(calls.filter((call) => call.name === "auth.getUser")).toHaveLength(0);
+
+  const rpcNames = calls
+    .filter((call) => call.name === "rpc")
+    .map((call) => call.rpcName);
+  expect(rpcNames.filter((name) => name === "app_home_bootstrap")).toHaveLength(
+    1
+  );
+  expect(rpcNames).not.toContain("app_my_access_status");
+  expect(rpcNames).not.toContain("app_user_attempts_enriched");
+  expect(rpcNames).not.toContain("app_past_paper_attempts_enriched");
+  expect(rpcNames).not.toContain("app_quiz_catalog_rows");
+  expect(rpcNames).not.toContain("app_course_subtopics_progress");
+  expect(rpcNames).not.toContain("app_subtopic_quiz_list");
+});
+
 test("learner menu routes and tools work", async ({ page }) => {
   await stubSupabase(page, { signedIn: true, hasAccess: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1626,9 +1991,9 @@ test("past paper exams use assessment settings for timer and negative marking", 
   await page.locator(".dialog-switch-input").check();
   await page.locator(".dialog-btn.primary").click();
 
-  await expect.poll(() => new URL(page.url()).pathname).toBe(
-    "/past-papers/session/"
-  );
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .toBe("/past-papers/session/");
   await expect
     .poll(() => new URL(page.url()).searchParams.get("duration"))
     .toBe("5");
@@ -1647,8 +2012,7 @@ test("past paper exams use assessment settings for timer and negative marking", 
     .poll(() =>
       page.evaluate(() => {
         const state = JSON.parse(
-          window.localStorage.getItem("__supabaseTestState") ||
-            '{"calls":[]}'
+          window.localStorage.getItem("__supabaseTestState") || '{"calls":[]}'
         );
         return (state.calls || []).some(
           (call) =>
@@ -1666,9 +2030,7 @@ test("past paper exams use assessment settings for timer and negative marking", 
   await page.reload();
   await expect(page.locator("#past-paper-session-view")).toBeVisible();
   await expect(
-    page.locator(
-      'input[data-branch-input="past-paper-branch-1"][value="true"]'
-    )
+    page.locator('input[data-branch-input="past-paper-branch-1"][value="true"]')
   ).toBeChecked();
   await page.locator(".past-paper-branch .opt-true").nth(1).click();
   await page.locator("#btn-submit-past-paper").click();
@@ -1693,9 +2055,7 @@ test("past paper exams use assessment settings for timer and negative marking", 
     .poll(() => new URL(page.url()).searchParams.get("negative"))
     .toBe("1");
 
-  await page.goto(
-    "/past-papers/review/?attemptId=past-paper-attempt-1"
-  );
+  await page.goto("/past-papers/review/?attemptId=past-paper-attempt-1");
   await expect(page.locator("#past-paper-review-view")).toBeVisible();
   await expect(page.locator("#past-paper-review-score")).toHaveText("0/2");
   await expect(page.locator("#past-paper-review-percent")).toHaveText("0%");
@@ -1738,13 +2098,8 @@ test("account progress restores study and exam drafts without device storage", a
   ).toHaveCount(1);
   await expect(page.locator("#quiz-answered-count")).toHaveText("1");
 
-  const savesBeforeExam = await page.evaluate(
-    accountSaveCount,
-    "quiz-tf-1"
-  );
-  await page.goto(
-    "/quiz/?quizId=quiz-tf-1&mode=exam&duration=5&negative=1"
-  );
+  const savesBeforeExam = await page.evaluate(accountSaveCount, "quiz-tf-1");
+  await page.goto("/quiz/?quizId=quiz-tf-1&mode=exam&duration=5&negative=1");
   await expect(page.locator("#quiz-view")).toBeVisible();
   await page.locator("#quiz-form .opt-false").first().click();
   await expect
@@ -1829,7 +2184,9 @@ test("learner mobile flow routes render without collapsing layout", async ({
       '.dialog-wheel-option[data-value="0"]'
     );
     if (!list || !noTime) return null;
-    return Math.round(noTime.getBoundingClientRect().top - list.getBoundingClientRect().top);
+    return Math.round(
+      noTime.getBoundingClientRect().top - list.getBoundingClientRect().top
+    );
   });
   expect(timerTopSpacing).not.toBeNull();
   expect(timerTopSpacing).toBeLessThanOrEqual(2);
@@ -1840,7 +2197,9 @@ test("learner mobile flow routes render without collapsing layout", async ({
     "Wrong answers lose 1 point"
   );
   const tooltipBounds = await page.evaluate(() => {
-    const panel = document.querySelector(".dialog-panel")?.getBoundingClientRect();
+    const panel = document
+      .querySelector(".dialog-panel")
+      ?.getBoundingClientRect();
     const tooltip = document
       .querySelector(".dialog-info-tooltip")
       ?.getBoundingClientRect();
@@ -1864,8 +2223,12 @@ test("learner mobile flow routes render without collapsing layout", async ({
   await page.locator(".dialog-btn.primary").click();
 
   await expect.poll(() => new URL(page.url()).pathname).toBe("/quiz/");
-  await expect.poll(() => new URL(page.url()).searchParams.get("duration")).toBe("5");
-  await expect.poll(() => new URL(page.url()).searchParams.get("negative")).toBe("1");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("duration"))
+    .toBe("5");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("negative"))
+    .toBe("1");
   await expect(page.locator("#quiz-view")).toBeVisible();
   await expect(page.locator("#quiz-progress-copy")).toContainText(":");
   await expect(page.locator("#quiz-mode-badge")).toContainText("5 MIN");
@@ -1888,7 +2251,9 @@ test("learner mobile flow routes render without collapsing layout", async ({
     const card = quizCards.nth(index);
     const question = await card.locator(".question-stem").textContent();
     await card
-      .locator(question?.includes("anatomical position") ? ".opt-false" : ".opt-true")
+      .locator(
+        question?.includes("anatomical position") ? ".opt-false" : ".opt-true"
+      )
       .click();
   }
   await page.locator("#btn-submit").click();
@@ -1983,24 +2348,24 @@ test("account stats combine normal quizzes and Past Paper exams", async ({
     "Combined Average"
   );
   await expect(page.locator("#account-overview-grid")).toContainText("67%");
-  await expect(
-    page.locator('[data-account-section="normal"]')
-  ).toContainText("76%");
-  await expect(
-    page.locator('[data-account-section="normal"]')
-  ).toContainText("2 attempts");
+  await expect(page.locator('[data-account-section="normal"]')).toContainText(
+    "76%"
+  );
+  await expect(page.locator('[data-account-section="normal"]')).toContainText(
+    "2 attempts"
+  );
   await expect(page.locator('[data-account-section="exam"]')).toContainText(
     "50%"
   );
   await expect(page.locator('[data-account-section="exam"]')).toContainText(
     "1 attempt"
   );
-  await expect(
-    page.locator('[data-account-section="combined"]')
-  ).toContainText("67%");
-  await expect(
-    page.locator('[data-account-section="combined"]')
-  ).toContainText("3 attempts");
+  await expect(page.locator('[data-account-section="combined"]')).toContainText(
+    "67%"
+  );
+  await expect(page.locator('[data-account-section="combined"]')).toContainText(
+    "3 attempts"
+  );
   await expect(page.locator("#account-recent-list")).toContainText(
     "Anatomy Past Paper 1"
   );
@@ -2014,9 +2379,7 @@ test("admin shell loads", async ({ page }) => {
   await page.goto("/JAK2V617F/");
   await expectCanonicalFavicon(page);
   await expect(page.locator("#admin-denied-view")).toBeVisible();
-  await expect(page.locator("#admin-loading-view")).toHaveClass(
-    /loading-view/
-  );
+  await expect(page.locator("#admin-loading-view")).toHaveClass(/loading-view/);
   await expect(page.locator("#admin-loading-view .loader")).toHaveCount(1);
   await expect(page.locator("#admin-loading-view .spinner")).toHaveCount(0);
 });
@@ -2030,9 +2393,9 @@ test("admin overview promotes the silent cohort card", async ({ page }) => {
     "Stats",
     "Access Control",
   ]);
-  await expect(page.locator(".admin-route-nav [data-admin-overview]")).toContainText(
-    "Needs Activity"
-  );
+  await expect(
+    page.locator(".admin-route-nav [data-admin-overview]")
+  ).toContainText("Needs Activity");
   await expect(page.locator("#admin-overview-active-count")).toHaveText("1");
 
   await expect(page.locator("#admin-menu-main")).toContainText(

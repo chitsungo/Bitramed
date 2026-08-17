@@ -51,8 +51,7 @@ export const adminApp = {
       this.applyThemePreference(this.getThemePreference());
       this.bindEvents();
       await this.requireSession();
-      await this.loadThemePreference();
-      await this.requireAdmin();
+      await Promise.all([this.loadThemePreference(), this.requireAdmin()]);
       await this.loadDashboard();
       window.addEventListener("popstate", () => {
         this.applyAdminRoute();
@@ -119,7 +118,9 @@ export const adminApp = {
       ),
       adminCourseGrid: document.getElementById("admin-course-grid"),
       adminUserHighlights: document.getElementById("admin-user-highlights"),
-      adminRankedSectionCount: document.getElementById("admin-ranked-section-count"),
+      adminRankedSectionCount: document.getElementById(
+        "admin-ranked-section-count"
+      ),
       adminRankedUsers: document.getElementById("admin-ranked-users"),
       adminUserSectionCount: document.getElementById(
         "admin-user-section-count"
@@ -742,7 +743,8 @@ export const adminApp = {
     this.state.overviewSub = sub;
     const isMenu = !sub || sub === "menu";
     if (this.dom.adminMenuMain) this.dom.adminMenuMain.hidden = !isMenu;
-    if (this.dom.adminMenuActiveShell) this.dom.adminMenuActiveShell.hidden = isMenu;
+    if (this.dom.adminMenuActiveShell)
+      this.dom.adminMenuActiveShell.hidden = isMenu;
     if (this.dom.adminOverviewRoute) {
       this.dom.adminOverviewRoute.classList.toggle("is-active", isMenu);
       if (isMenu) {
@@ -752,7 +754,10 @@ export const adminApp = {
       }
     }
     if (this.dom.adminOverviewActiveTrigger) {
-      this.dom.adminOverviewActiveTrigger.classList.toggle("is-active", !isMenu);
+      this.dom.adminOverviewActiveTrigger.classList.toggle(
+        "is-active",
+        !isMenu
+      );
       this.dom.adminOverviewActiveTrigger.setAttribute(
         "aria-pressed",
         !isMenu ? "true" : "false"
@@ -767,7 +772,9 @@ export const adminApp = {
       (this.state.statsUsers || [])
         .filter((u) => (u.total_attempts || 0) > 0)
         .flatMap((u) =>
-          [u.user_id, u.id, u.email].filter(Boolean).map((v) => String(v).toLowerCase())
+          [u.user_id, u.id, u.email]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase())
         )
     );
 

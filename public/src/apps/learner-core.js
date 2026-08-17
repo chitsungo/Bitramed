@@ -25,7 +25,18 @@ export const learnerCore = {
   pendingLoadingResolve: null,
   appDataCacheWriteTimer: null,
   restoringAppDataCache: false,
-  appDataCacheVersion: 2,
+  accessStatusLoadPromise: null,
+  homeBootstrapLoadPromise: null,
+  homeBootstrapUnavailable: false,
+  homeBootstrapLoadedThisPage: false,
+  shellBootstrapLoadPromise: null,
+  routeDataLoadPromises: null,
+  routeDataGeneration: 0,
+  assessmentProgressCache: null,
+  assessmentProgressLoadPromises: null,
+  assessmentProgressPendingWrites: null,
+  assessmentSettingsById: null,
+  appDataCacheVersion: 3,
   state: {
     levelList: [],
     levelIdByName: {},
@@ -63,10 +74,27 @@ export const learnerCore = {
     currentUser: null,
     accessStatus: null,
     themePreference: "light",
+    routeData: {
+      yearByLevel: {},
+      coursesByLevel: {},
+      subtopicsByCourse: {},
+      typesBySubtopic: {},
+      quizzesByType: {},
+      accountByKey: {},
+      searchByQuery: {},
+    },
+    homeDashboard: {
+      loaded: false,
+      generatedAt: "",
+      stats: null,
+      levelProgressByName: {},
+    },
     search: {
       indexLoaded: false,
       results: [],
       activeIndex: -1,
+      pagesByQuery: {},
+      requestSequence: 0,
     },
     pastPapers: {
       years: [],
@@ -97,7 +125,6 @@ export const learnerCore = {
       this.initSupabaseClient();
       this.applyThemePreference(this.getThemePreference());
       await this.requireSessionOrRedirect();
-      await this.loadThemePreference();
       this.bindTopbarEngine();
       this.startMenuSessionClock();
       this.bindAppEvents();
@@ -107,22 +134,16 @@ export const learnerCore = {
       });
       window.addEventListener("pageshow", (event) => {
         if (!event.persisted) return;
-        void this.router();
+        this.clearLocalCaches();
+        void this.loadDatabase().catch((error) => {
+          void this.handleInitError(error);
+        });
       });
       const restoredCachedState = this.restoreAppDataCache();
-
-      if (restoredCachedState) {
-        await this.router();
-        void this.loadDatabase({
-          showLoading: false,
-          rerenderOnComplete: true,
-        }).catch(async (error) => {
-          await this.handleInitError(error);
-        });
-        return;
-      }
-
-      await this.loadDatabase();
+      await this.loadDatabase({
+        showLoading: !restoredCachedState,
+        routeOnComplete: false,
+      });
       await this.router();
     } catch (error) {
       await this.handleInitError(error);
@@ -131,15 +152,22 @@ export const learnerCore = {
 
   async handleInitError(error) {
     console.error("App init failed:", error);
-    if (await this.handleAccessRestriction(error)) {
+    const noSession = String(error?.message || "") === "No active session.";
+    if (noSession) {
       return;
     }
-    if (
-      this.isAuthSessionError(error) ||
-      String(error?.message || "") === "No active session."
-    ) {
+    if (this.isAuthSessionError(error)) {
+      this.clearPersistedAppDataCache();
+      try {
+        await this.getSupabase().auth.signOut({ scope: "local" });
+      } catch {
+        // The redirect still clears the unusable application state.
+      }
+      const nextPath = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/?next=${encodeURIComponent(nextPath)}`);
       return;
     }
+    if (await this.handleAccessRestriction(error)) return;
     this.showFatalLoadError(error?.message || "App initialization failed.");
   },
 
@@ -184,6 +212,10 @@ export const learnerCore = {
   },
 
   clearPersistedAppDataCache() {
+    if (this.appDataCacheWriteTimer) {
+      window.clearTimeout(this.appDataCacheWriteTimer);
+      this.appDataCacheWriteTimer = null;
+    }
     const storageKey = this.getAppDataCacheKey();
     if (!storageKey) return;
 
@@ -204,7 +236,7 @@ export const learnerCore = {
     this.appDataCacheWriteTimer = window.setTimeout(() => {
       this.appDataCacheWriteTimer = null;
       this.persistAppDataCache();
-    }, 80);
+    }, 500);
   },
 
   persistAppDataCache() {
@@ -214,21 +246,10 @@ export const learnerCore = {
     const snapshot = {
       version: this.appDataCacheVersion,
       savedAt: Date.now(),
-      accessStatus: this.state.accessStatus,
       levelList: this.state.levelList,
       levelIdByName: this.state.levelIdByName,
-      areaList: this.state.areaList,
-      areasByLevel: this.state.areasByLevel,
-      modulesByArea: this.state.modulesByArea,
-      subtopicProgressByArea: this.state.subtopicProgressByArea,
-      quizzesByModule: this.state.quizzesByModule,
-      quizMap: this.state.quizMap,
-      quizDetailsById: this.state.quizDetailsById,
-      attempts: this.state.attempts,
-      pastPaperAttempts: this.state.pastPaperAttempts,
-      moduleTypeCountsByModule: this.state.moduleTypeCountsByModule,
-      pastPapers: this.state.pastPapers,
-      searchIndexLoaded: this.state.search.indexLoaded,
+      homeDashboard: this.state.homeDashboard,
+      pastPaperYears: this.state.pastPapers?.years || [],
     };
 
     try {
@@ -257,7 +278,9 @@ export const learnerCore = {
       }
 
       this.restoringAppDataCache = true;
-      this.state.accessStatus = snapshot?.accessStatus || null;
+      // Access is never restored from browser storage. A compact server
+      // bootstrap is authoritative on every load and gates protected views.
+      this.state.accessStatus = null;
       this.state.levelList = Array.isArray(snapshot?.levelList)
         ? snapshot.levelList
         : [];
@@ -265,64 +288,25 @@ export const learnerCore = {
         snapshot?.levelIdByName && typeof snapshot.levelIdByName === "object"
           ? snapshot.levelIdByName
           : {};
-      this.state.areaList = Array.isArray(snapshot?.areaList)
-        ? snapshot.areaList
-        : [];
-      this.state.areasByLevel =
-        snapshot?.areasByLevel && typeof snapshot.areasByLevel === "object"
-          ? snapshot.areasByLevel
-          : {};
-      this.state.modulesByArea =
-        snapshot?.modulesByArea && typeof snapshot.modulesByArea === "object"
-          ? snapshot.modulesByArea
-          : {};
-      this.state.subtopicProgressByArea =
-        snapshot?.subtopicProgressByArea &&
-        typeof snapshot.subtopicProgressByArea === "object"
-          ? snapshot.subtopicProgressByArea
-          : {};
-      this.state.quizzesByModule =
-        snapshot?.quizzesByModule &&
-        typeof snapshot.quizzesByModule === "object"
-          ? snapshot.quizzesByModule
-          : {};
-      this.state.quizMap =
-        snapshot?.quizMap && typeof snapshot.quizMap === "object"
-          ? snapshot.quizMap
-          : {};
-      this.state.quizDetailsById =
-        snapshot?.quizDetailsById &&
-        typeof snapshot.quizDetailsById === "object"
-          ? snapshot.quizDetailsById
-          : {};
-      this.state.moduleTypeCountsByModule =
-        snapshot?.moduleTypeCountsByModule &&
-        typeof snapshot.moduleTypeCountsByModule === "object"
-          ? snapshot.moduleTypeCountsByModule
-          : {};
-      this.state.pastPapers =
-        snapshot?.pastPapers && typeof snapshot.pastPapers === "object"
+      this.state.homeDashboard =
+        snapshot?.homeDashboard && typeof snapshot.homeDashboard === "object"
           ? {
-              ...this.state.pastPapers,
-              ...snapshot.pastPapers,
+              ...this.state.homeDashboard,
+              ...snapshot.homeDashboard,
+              levelProgressByName:
+                snapshot.homeDashboard.levelProgressByName || {},
             }
-          : this.state.pastPapers;
-      this.state.search.indexLoaded = !!snapshot?.searchIndexLoaded;
-      this.setAttemptsData(
-        Array.isArray(snapshot?.attempts) ? snapshot.attempts : []
-      );
-      this.setPastPaperAttemptsData?.(
-        Array.isArray(snapshot?.pastPaperAttempts)
-          ? snapshot.pastPaperAttempts
-          : []
+          : this.state.homeDashboard;
+      this.state.pastPapers.years = Array.isArray(snapshot?.pastPaperYears)
+        ? snapshot.pastPaperYears
+        : [];
+      this.state.pastPapers.yearsLoaded = Array.isArray(
+        snapshot?.pastPaperYears
       );
       this.restoringAppDataCache = false;
 
       return (
-        !!this.state.accessStatus ||
-        !!this.state.levelList.length ||
-        !!this.state.attempts.length ||
-        !!this.state.pastPaperAttempts.length
+        !!this.state.homeDashboard?.loaded || !!this.state.levelList.length
       );
     } catch (error) {
       this.restoringAppDataCache = false;
@@ -511,8 +495,9 @@ export const learnerCore = {
     const message = String(error?.message || "").toLowerCase();
 
     return (
-      ["PGRST301"].includes(code) ||
+      ["PGRST301", "28000"].includes(code) ||
       [
+        "authentication is required",
         "auth session missing",
         "jwt expired",
         "invalid jwt",
@@ -523,44 +508,63 @@ export const learnerCore = {
   },
 
   async requireSessionOrRedirect() {
-    const { data, error } = await this.getSupabase().auth.getUser();
+    const auth = this.getSupabase().auth;
+    const response =
+      typeof auth.getSession === "function"
+        ? await auth.getSession()
+        : await auth.getUser();
+    const { data, error } = response;
     if (error && !this.isAuthSessionError(error)) throw error;
 
-    if (!data.user) {
+    const user = data?.session?.user || data?.user || null;
+    if (!user) {
       const nextPath = `${window.location.pathname}${window.location.search}`;
       window.location.replace(`/?next=${encodeURIComponent(nextPath)}`);
       throw new Error("No active session.");
     }
 
-    this.state.currentUser = data.user;
+    this.state.currentUser = user;
     this.renderTopbarUser();
   },
 
   async loadAccessStatus() {
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_my_access_status"),
-      12000,
-      "Checking account access"
-    );
-    if (error) {
-      if (this.isAuthSessionError(error)) {
-        this.state.accessStatus = {
-          status: "signed_out",
-          hasAccess: false,
-          blockReason: "",
-          accessExpiresAt: null,
-        };
-        return this.state.accessStatus;
+    if (this.accessStatusLoadPromise) return this.accessStatusLoadPromise;
+
+    const request = (async () => {
+      const { data, error } = await this.withTimeout(
+        this.getSupabase().rpc("app_my_access_status"),
+        12000,
+        "Checking account access"
+      );
+      if (error) {
+        if (this.isAuthSessionError(error)) {
+          this.state.accessStatus = {
+            status: "signed_out",
+            hasAccess: false,
+            blockReason: "",
+            accessExpiresAt: null,
+          };
+          return this.state.accessStatus;
+        }
+        throw error;
       }
-      throw error;
+
+      this.state.accessStatus = data || {
+        status: "no_access",
+        hasAccess: false,
+      };
+
+      return this.state.accessStatus;
+    })();
+
+    this.accessStatusLoadPromise = request;
+    try {
+      return await request;
+    } finally {
+      if (this.accessStatusLoadPromise === request) {
+        this.accessStatusLoadPromise = null;
+      }
     }
-
-    this.state.accessStatus = data || {
-      status: "no_access",
-      hasAccess: false,
-    };
-
-    return this.state.accessStatus;
   },
 
   hasActiveAccess() {
@@ -1213,7 +1217,11 @@ export const learnerCore = {
       this.dom.searchInput.addEventListener("input", () => {
         if (!this.hasActiveAccess()) return;
         if (this.state.topbar.searchOpen) {
-          this.renderSearchResults();
+          window.clearTimeout(this.searchRenderTimer);
+          this.searchRenderTimer = window.setTimeout(() => {
+            this.searchRenderTimer = null;
+            void this.renderSearchResults();
+          }, 160);
         }
       });
 
@@ -1460,6 +1468,10 @@ export const learnerCore = {
   closeSearch() {
     if (!this.dom.searchOverlay || !this.dom.searchBackdrop) return;
     this.state.topbar.searchOpen = false;
+    if (this.searchRenderTimer) {
+      window.clearTimeout(this.searchRenderTimer);
+      this.searchRenderTimer = null;
+    }
     this.dom.searchOverlay.classList.remove("is-open");
     this.dom.searchBackdrop.classList.remove("is-visible");
     this.dom.searchOverlay.setAttribute("aria-hidden", "true");
@@ -1536,6 +1548,10 @@ export const learnerCore = {
   },
 
   clearLocalCaches() {
+    this.cancelPendingAssessmentProgressWrites?.();
+    this.homeBootstrapUnavailable = false;
+    this.homeBootstrapLoadedThisPage = false;
+    this.routeDataGeneration += 1;
     this.state.levelList = [];
     this.state.levelIdByName = {};
     this.state.areaList = [];
@@ -1551,6 +1567,26 @@ export const learnerCore = {
     this.state.attemptsByQuizId = {};
     this.state.pastPaperAttempts = [];
     this.state.userStats = null;
+    this.state.routeData = {
+      yearByLevel: {},
+      coursesByLevel: {},
+      subtopicsByCourse: {},
+      typesBySubtopic: {},
+      quizzesByType: {},
+      accountByKey: {},
+      searchByQuery: {},
+    };
+    this.routeDataLoadPromises = null;
+    this.initialRoutePrefetch = null;
+    this.assessmentProgressCache = null;
+    this.assessmentProgressLoadPromises = null;
+    this.assessmentSettingsById = null;
+    this.state.homeDashboard = {
+      loaded: false,
+      generatedAt: "",
+      stats: null,
+      levelProgressByName: {},
+    };
     this.state.activeQuestions = [];
     this.state.accountSummary = null;
     this.state.quizAttemptSummariesById = {};
@@ -1559,64 +1595,106 @@ export const learnerCore = {
     this.state.search.indexLoaded = false;
     this.state.search.results = [];
     this.state.search.activeIndex = -1;
+    this.state.search.pagesByQuery = {};
+    this.state.search.requestSequence = 0;
     this.clearPersistedAppDataCache();
   },
 
   async hardRefreshFromDatabase() {
     if (this.state.refreshInFlight) return;
-    await this.loadAccessStatus();
-    if (!this.hasActiveAccess()) {
+    this.state.refreshInFlight = true;
+    this.setRefreshButtonLoading(true);
+    try {
       this.clearLocalCaches();
-      this.renderAccessGate();
-      return;
+      this.showLoadingView();
+      await this.loadDatabase({
+        showLoading: false,
+        routeOnComplete: false,
+      });
+      if (!this.hasActiveAccess()) {
+        this.renderAccessGate();
+        return;
+      }
+      this.showToast("Database refreshed.");
+      await this.router();
+    } finally {
+      this.state.refreshInFlight = false;
+      this.setRefreshButtonLoading(false);
     }
-    this.clearLocalCaches();
-    this.showLoadingView();
-    await this.refreshDatabase({
-      silent: true,
-      forceToast: true,
-      includePersonalization: true,
-    });
-    await this.router();
   },
 
-  async loadDatabase({ showLoading = true, rerenderOnComplete = false } = {}) {
-    await this.loadAccessStatus();
+  shouldLoadHomepageBootstrap() {
+    const root =
+      window.location.pathname
+        .replace(/^\/+|\/+$/g, "")
+        .split("/")
+        .filter(Boolean)[0] || "home";
+    return root === "home";
+  },
+
+  async loadDatabase({ showLoading = true, routeOnComplete = true } = {}) {
+    if (showLoading) this.showLoadingView();
+
+    const useHomepageBootstrap = this.shouldLoadHomepageBootstrap();
+    const routePrefetch = useHomepageBootstrap
+      ? null
+      : this.prefetchInitialRouteData?.();
+    if (routePrefetch) {
+      void routePrefetch.catch(() => undefined);
+    }
+    const usedCompactBootstrap = useHomepageBootstrap
+      ? await this.loadHomeBootstrap?.()
+      : await this.loadShellBootstrap?.();
+    if (usedCompactBootstrap) {
+      if (!this.hasActiveAccess()) {
+        this.clearLocalCaches();
+        this.renderAccessGate();
+        return true;
+      }
+      if (routeOnComplete) await this.router();
+      return true;
+    }
+
+    // Compatibility path for environments where the compact bootstrap
+    // migration has not been applied. Only a missing RPC reaches this branch.
+    await Promise.all([this.loadThemePreference(), this.loadAccessStatus()]);
     if (!this.hasActiveAccess()) {
       this.clearLocalCaches();
       this.renderAccessGate();
-      return;
+      return false;
     }
 
-    if (!showLoading) {
-      await this.refreshDatabase({
-        silent: !rerenderOnComplete,
-        forceToast: false,
-        includePersonalization: true,
-      });
-      return;
+    // Compatibility for an unapplied bootstrap migration stays deliberately
+    // small. Route renderers perform their own scoped reads.
+    if (useHomepageBootstrap) {
+      await Promise.all([
+        this.loadAreaCatalog(),
+        this.loadPastPaperYears?.(true),
+      ]);
     }
-
-    this.showLoadingView();
-    await Promise.all([
-      this.loadAreaCatalog(),
-      this.loadPastPaperYears?.(true),
-      this.loadPersonalizationData(),
-    ]);
-    await this.router();
+    if (routeOnComplete) {
+      await this.router();
+    }
+    return false;
   },
 
   withTimeout(promise, ms, label = "Request") {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        setTimeout(
-          () =>
-            reject(new Error(`${label} timed out after ${ms / 1000} seconds.`)),
-          ms
-        );
-      }),
-    ]);
+    return new Promise((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        reject(new Error(`${label} timed out after ${ms / 1000} seconds.`));
+      }, ms);
+
+      Promise.resolve(promise).then(
+        (value) => {
+          window.clearTimeout(timeoutId);
+          resolve(value);
+        },
+        (error) => {
+          window.clearTimeout(timeoutId);
+          reject(error);
+        }
+      );
+    });
   },
 
   extractLeadingNumber(value) {
@@ -1848,6 +1926,7 @@ export const learnerCore = {
       .filter(Boolean);
     const [root = "home"] = segments;
     const params = new URLSearchParams(window.location.search);
+    const routeParam = (name) => String(params.get(name) || "").trim();
 
     this.state.currentLevel = "";
     this.state.currentArea = "";
@@ -1882,29 +1961,29 @@ export const learnerCore = {
       view = "home";
     } else if (root === "year") {
       view = "year";
-      this.state.currentLevel = params.get("year") || "";
+      this.state.currentLevel = routeParam("year");
     } else if (root === "modules") {
       view = "modules";
-      this.state.currentLevel = params.get("level") || "";
-      this.state.currentArea = params.get("area") || "";
+      this.state.currentLevel = routeParam("level");
+      this.state.currentArea = routeParam("area");
     } else if (root === "subtopics") {
       view = "subtopics";
-      this.state.currentLevel = params.get("level") || "";
-      this.state.currentArea = params.get("area") || "";
+      this.state.currentLevel = routeParam("level");
+      this.state.currentArea = routeParam("area");
     } else if (root === "types") {
       view = "types";
-      this.state.currentLevel = params.get("level") || "";
-      this.state.currentArea = params.get("area") || "";
-      this.state.currentSub = params.get("sub") || "";
+      this.state.currentLevel = routeParam("level");
+      this.state.currentArea = routeParam("area");
+      this.state.currentSub = routeParam("sub");
     } else if (root === "quizzes") {
       view = "quizzes";
-      this.state.currentLevel = params.get("level") || "";
-      this.state.currentArea = params.get("area") || "";
-      this.state.currentSub = params.get("sub") || "";
-      this.state.currentType = params.get("type") || "";
+      this.state.currentLevel = routeParam("level");
+      this.state.currentArea = routeParam("area");
+      this.state.currentSub = routeParam("sub");
+      this.state.currentType = routeParam("type").toLowerCase();
     } else if (root === "quiz") {
       view = "quiz";
-      this.state.currentQuizId = params.get("quizId") || "";
+      this.state.currentQuizId = routeParam("quizId");
       this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
         params.get("duration")
       );
@@ -1917,7 +1996,7 @@ export const learnerCore = {
           : "study";
     } else if (root === "results") {
       view = "results";
-      this.state.currentQuizId = params.get("quizId") || "";
+      this.state.currentQuizId = routeParam("quizId");
       this.state.currentExamDurationMinutes = this.normalizeQuizDurationMinutes(
         params.get("duration")
       );
@@ -1932,8 +2011,8 @@ export const learnerCore = {
       const [, pastPaperView = "topics"] = segments;
       if (pastPaperView === "exams") {
         view = "past-paper-exams";
-        this.state.currentLevel = params.get("year") || "";
-        this.state.currentArea = params.get("topic") || "";
+        this.state.currentLevel = routeParam("year");
+        this.state.currentArea = routeParam("topic");
         if (pastPapers) {
           pastPapers.currentYear = this.state.currentLevel;
           pastPapers.currentTopic = this.state.currentArea;
@@ -1941,9 +2020,9 @@ export const learnerCore = {
       } else if (pastPaperView === "session") {
         view = "past-paper-session";
         if (pastPapers) {
-          pastPapers.currentSetId = params.get("setId") || "";
-          pastPapers.currentYear = params.get("year") || "";
-          pastPapers.currentTopic = params.get("topic") || "";
+          pastPapers.currentSetId = routeParam("setId");
+          pastPapers.currentYear = routeParam("year");
+          pastPapers.currentTopic = routeParam("topic");
           pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
             params.get("duration")
           );
@@ -1952,7 +2031,7 @@ export const learnerCore = {
       } else if (pastPaperView === "review") {
         view = "past-paper-review";
         if (pastPapers) {
-          pastPapers.currentAttemptId = params.get("attemptId") || "";
+          pastPapers.currentAttemptId = routeParam("attemptId");
           pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
             params.get("duration")
           );
@@ -1960,7 +2039,7 @@ export const learnerCore = {
         }
       } else {
         view = "past-paper-topics";
-        this.state.currentLevel = params.get("year") || "";
+        this.state.currentLevel = routeParam("year");
         if (pastPapers) {
           pastPapers.currentYear = this.state.currentLevel;
         }
@@ -1973,7 +2052,14 @@ export const learnerCore = {
 
     this.syncPageState(view);
 
-    if (["quiz", "results"].includes(view) && this.state.currentQuizId) {
+    if (["quiz", "results"].includes(view) && !this.state.currentQuizId) {
+      await this.navigate("home", {}, { replace: true });
+      return;
+    }
+
+    if (view === "results" && this.state.currentQuizId) {
+      const prefetchedContext = this.consumeInitialRoutePrefetch?.("results");
+      if (prefetchedContext) await prefetchedContext;
       const found = await this.ensureQuizContextFromId(
         this.state.currentQuizId
       );
@@ -2025,6 +2111,17 @@ export const learnerCore = {
         break;
       case "home":
       default:
+        if (
+          !this.state.homeDashboard?.loaded &&
+          !this.homeBootstrapUnavailable
+        ) {
+          this.showLoadingView();
+          await this.loadHomeBootstrap?.();
+          if (!this.hasActiveAccess()) {
+            this.renderAccessGate();
+            return;
+          }
+        }
         await this.renderDashboard();
         break;
     }

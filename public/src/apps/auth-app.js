@@ -1,9 +1,7 @@
 import {
   applyDocumentThemePreference,
   createSupabaseClient,
-  normalizeThemePreference,
   readStoredThemePreference,
-  writeStoredThemePreference,
 } from "../core/supabase.js";
 import {
   sendPasswordResetEmail,
@@ -11,7 +9,6 @@ import {
   signInWithPassword,
   signUpWithPassword,
 } from "../services/auth-service.js";
-import { loadUserThemePreference } from "../services/preferences-service.js";
 
 const PASSWORD_RESET_SUCCESS_MESSAGE =
   "Password updated. Sign in with your new password.";
@@ -28,7 +25,9 @@ export const authApp = {
       return;
     }
 
-    await this.redirectIfAlreadySignedIn();
+    if (await this.redirectIfAlreadySignedIn()) {
+      return;
+    }
     this.bindEvents();
     this.applyRouteState();
   },
@@ -201,45 +200,24 @@ export const authApp = {
         : "light";
   },
 
-  async loadThemePreference(userId) {
-    const fallbackMode = this.getThemePreference();
-    this.applyThemePreference(fallbackMode);
-
-    if (!userId) return fallbackMode;
-
-    try {
-      const theme = await loadUserThemePreference(this.supabase, userId);
-
-      const resolvedMode =
-        typeof normalizeThemePreference === "function"
-          ? normalizeThemePreference(theme)
-          : theme === "dark"
-            ? "dark"
-            : "light";
-
-      if (typeof writeStoredThemePreference === "function") {
-        writeStoredThemePreference(resolvedMode);
-      }
-      this.applyThemePreference(resolvedMode);
-      return resolvedMode;
-    } catch (error) {
-      console.error("Auth theme preference load failed:", error);
-      this.applyThemePreference(fallbackMode);
-      return fallbackMode;
-    }
-  },
-
   async redirectIfAlreadySignedIn() {
-    const { data, error } = await this.supabase.auth.getUser();
+    const auth = this.supabase.auth;
+    const response =
+      typeof auth.getSession === "function"
+        ? await auth.getSession()
+        : await auth.getUser();
+    const { data, error } = response;
 
     if (error) {
-      return;
+      return false;
     }
 
-    if (data.user) {
-      await this.loadThemePreference(data.user.id);
+    const user = data?.session?.user || data?.user || null;
+    if (user) {
       window.location.replace(this.getRedirectTarget());
+      return true;
     }
+    return false;
   },
 
   getRedirectTarget() {
@@ -479,7 +457,7 @@ export const authApp = {
     this.setButtonBusy(this.dom.submitBtn, true, "Signing in...");
 
     try {
-      const { data, error } = await signInWithPassword(this.supabase, {
+      const { error } = await signInWithPassword(this.supabase, {
         email,
         password,
       });
@@ -489,7 +467,6 @@ export const authApp = {
         return;
       }
 
-      await this.loadThemePreference(data?.user?.id);
       window.location.replace(this.getRedirectTarget());
     } catch (error) {
       this.showFeedback(error?.message || "Sign in failed.", "error");
@@ -558,7 +535,6 @@ export const authApp = {
       }
 
       if (data.session) {
-        await this.loadThemePreference(data.user?.id);
         window.location.replace(this.getRedirectTarget());
         return;
       }

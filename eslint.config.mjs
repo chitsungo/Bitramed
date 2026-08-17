@@ -1,30 +1,71 @@
 export default [
   {
-    files: ["src/**/*.js", "tests/**/*.js"],
+    files: ["src/**/*.js", "public/src/**/*.js"],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: "module",
       globals: {
-        URL: "readonly",
+        AbortController: "readonly",
+        clearInterval: "readonly",
+        clearTimeout: "readonly",
         console: "readonly",
+        crypto: "readonly",
         document: "readonly",
+        Element: "readonly",
+        Event: "readonly",
+        fetch: "readonly",
+        FormData: "readonly",
+        HTMLButtonElement: "readonly",
+        HTMLElement: "readonly",
+        IntersectionObserver: "readonly",
         Intl: "readonly",
         JSON: "readonly",
+        KeyboardEvent: "readonly",
         localStorage: "readonly",
+        MutationObserver: "readonly",
         navigator: "readonly",
         Node: "readonly",
         Promise: "readonly",
         requestAnimationFrame: "readonly",
+        sessionStorage: "readonly",
+        setInterval: "readonly",
         setTimeout: "readonly",
         structuredClone: "readonly",
+        URL: "readonly",
         URLSearchParams: "readonly",
-        window: "readonly"
-      }
+        window: "readonly",
+      },
     },
     rules: {
       "no-console": "off",
+      "no-undef": "error",
       "no-unreachable": "error",
-      "prefer-const": "error"
-    }
-  }
+      "prefer-const": "error",
+    },
+  },
+  {
+    files: ["scripts/**/*.mjs", "tests/**/*.{js,mjs}"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: "module",
+      globals: {
+        Buffer: "readonly",
+        clearTimeout: "readonly",
+        console: "readonly",
+        document: "writable",
+        getComputedStyle: "readonly",
+        globalThis: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        URL: "readonly",
+        window: "writable",
+      },
+    },
+    rules: {
+      "no-console": "off",
+      "no-undef": "error",
+      "no-unreachable": "error",
+      "prefer-const": "error",
+    },
+  },
 ];

@@ -39,15 +39,17 @@ export const learnerSearch = {
 
     return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
       numeric: true,
-      sensitivity: "base"
+      sensitivity: "base",
     });
   },
 
   compareSearchItems(a, b) {
-    return this.compareSearchValues(a.level, b.level)
-      || this.compareSearchValues(a.area, b.area)
-      || this.compareSearchValues(a.sub, b.sub)
-      || this.compareSearchValues(a.title, b.title);
+    return (
+      this.compareSearchValues(a.level, b.level) ||
+      this.compareSearchValues(a.area, b.area) ||
+      this.compareSearchValues(a.sub, b.sub) ||
+      this.compareSearchValues(a.title, b.title)
+    );
   },
 
   getSearchCatalogItems() {
@@ -65,7 +67,10 @@ export const learnerSearch = {
     const haystack = [title, sub, area, level].filter(Boolean).join(" ");
 
     if (!normalizedQuery) return 0;
-    if (!haystack.includes(normalizedQuery) && !tokens.every((token) => haystack.includes(token))) {
+    if (
+      !haystack.includes(normalizedQuery) &&
+      !tokens.every((token) => haystack.includes(token))
+    ) {
       return 0;
     }
 
@@ -109,17 +114,19 @@ export const learnerSearch = {
         browseMode: true,
         totalItems: items.length,
         totalMatches: items.length,
-        results: items.slice(0, 12)
+        results: items.slice(0, 12),
       };
     }
 
     const results = items
       .map((item) => ({
         item,
-        score: this.getSearchItemScore(item, normalizedQuery, tokens)
+        score: this.getSearchItemScore(item, normalizedQuery, tokens),
       }))
       .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score || this.compareSearchItems(a.item, b.item))
+      .sort(
+        (a, b) => b.score - a.score || this.compareSearchItems(a.item, b.item)
+      )
       .map((entry) => entry.item);
 
     return {
@@ -127,14 +134,16 @@ export const learnerSearch = {
       browseMode: false,
       totalItems: items.length,
       totalMatches: results.length,
-      results: results.slice(0, 18)
+      results: results.slice(0, 18),
     };
   },
 
   buildSearchResultMarkup(item, index) {
     const escape = this.escapeSearchHtml.bind(this);
     const typeMeta = this.getSearchTypeMeta(item.type);
-    const context = [item.level, item.area, item.sub].filter(Boolean).join(" - ");
+    const context = [item.level, item.area, item.sub]
+      .filter(Boolean)
+      .join(" - ");
     const questionCount = Number(item.count || 0);
     const questionLabel = questionCount
       ? `${questionCount} question${questionCount === 1 ? "" : "s"}`
@@ -163,35 +172,45 @@ export const learnerSearch = {
   bindSearchResultCards() {
     if (!this.dom?.searchResults) return;
 
-    this.dom.searchResults.querySelectorAll("[data-search-index]").forEach((card) => {
-      const index = Number.parseInt(card.dataset.searchIndex || "-1", 10);
-      if (!Number.isFinite(index) || index < 0) return;
+    this.dom.searchResults
+      .querySelectorAll("[data-search-index]")
+      .forEach((card) => {
+        const index = Number.parseInt(card.dataset.searchIndex || "-1", 10);
+        if (!Number.isFinite(index) || index < 0) return;
 
-      card.addEventListener("click", () => {
-        this.openSearchResultByIndex(index);
-      });
+        card.addEventListener("click", () => {
+          this.openSearchResultByIndex(index);
+        });
 
-      card.addEventListener("mouseenter", () => {
-        this.state.search.activeIndex = index;
-        this.updateSearchSelection();
-      });
+        card.addEventListener("mouseenter", () => {
+          this.state.search.activeIndex = index;
+          this.updateSearchSelection();
+        });
 
-      card.addEventListener("focus", () => {
-        this.state.search.activeIndex = index;
-        this.updateSearchSelection();
+        card.addEventListener("focus", () => {
+          this.state.search.activeIndex = index;
+          this.updateSearchSelection();
+        });
       });
-    });
   },
 
   async renderSearchResults() {
     if (!this.dom?.searchResults) return;
 
+    const rawQuery = this.dom.searchInput?.value || "";
+    const requestSequence = Number(this.state.search.requestSequence || 0) + 1;
+    this.state.search.requestSequence = requestSequence;
+
+    let searchPage;
     try {
-      await this.ensureSearchIndexLoaded();
+      searchPage = await this.loadQuizSearchPage(rawQuery);
     } catch (error) {
       console.error("Search render failed:", error);
 
-      if (typeof this.handleAccessRestriction === "function" && await this.handleAccessRestriction(error)) {
+      if (
+        typeof this.handleAccessRestriction === "function" &&
+        (await this.handleAccessRestriction(error))
+      ) {
         return;
       }
 
@@ -204,9 +223,16 @@ export const learnerSearch = {
       return;
     }
 
-    const { displayQuery, browseMode, totalItems, totalMatches, results } = this.getSearchResultsForQuery(
-      this.dom.searchInput?.value || ""
-    );
+    if (
+      requestSequence !== this.state.search.requestSequence ||
+      rawQuery !== (this.dom.searchInput?.value || "") ||
+      !this.state.topbar.searchOpen
+    ) {
+      return;
+    }
+
+    const { displayQuery, browseMode, totalItems, totalMatches, results } =
+      searchPage;
 
     this.state.search.results = results;
     this.state.search.activeIndex = results.length ? 0 : -1;
@@ -240,5 +266,5 @@ export const learnerSearch = {
 
     this.bindSearchResultCards();
     this.updateSearchSelection();
-  }
+  },
 };

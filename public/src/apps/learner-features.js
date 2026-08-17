@@ -1,58 +1,271 @@
 import { TYPE_META } from "../core/type-meta.js";
 import {
+  normalizeThemePreference,
+  writeStoredThemePreference,
+} from "../core/supabase.js";
+import {
   deleteAllAssessmentProgress,
   deleteAssessmentProgress,
   fetchAssessmentProgress,
   upsertAssessmentProgress,
 } from "../services/assessment-progress-service.js";
-import { fetchPastPaperAttempts } from "../services/past-paper-service.js";
+import {
+  fetchHomeBootstrap,
+  fetchShellBootstrap,
+} from "../services/home-bootstrap-service.js";
 import { confirmDialog, quizSettingsDialog } from "../ui/dialog.js";
 
 export const learnerFeatures = {
   assessmentProgressWriteQueue: Promise.resolve(),
   assessmentProgressUnavailable: false,
 
-  async refreshDatabase({
-    silent = false,
-    forceToast = false,
-    includePersonalization = false,
-  } = {}) {
-    if (this.state.refreshInFlight) return;
+  ensureRouteDataState() {
+    if (!this.state.routeData) {
+      this.state.routeData = {
+        yearByLevel: {},
+        coursesByLevel: {},
+        subtopicsByCourse: {},
+        typesBySubtopic: {},
+        quizzesByType: {},
+        accountByKey: {},
+        searchByQuery: {},
+      };
+    }
+    if (!this.routeDataLoadPromises) this.routeDataLoadPromises = {};
+    return this.state.routeData;
+  },
 
-    this.state.refreshInFlight = true;
-    this.setRefreshButtonLoading(true);
+  getScopedRouteDataKey(...parts) {
+    return JSON.stringify(parts.map((part) => String(part ?? "").trim()));
+  },
 
-    try {
-      this.state.modulesByArea = {};
-      this.state.subtopicProgressByArea = {};
-      this.state.quizzesByModule = {};
-      this.state.moduleTypeCountsByModule = {};
+  requireScopedRouteParts(label, parts) {
+    const normalized = Object.fromEntries(
+      Object.entries(parts).map(([key, value]) => [
+        key,
+        String(value ?? "").trim(),
+      ])
+    );
+    if (Object.values(normalized).some((value) => !value)) {
+      throw new Error(`${label} requires complete route parameters.`);
+    }
+    return normalized;
+  },
 
-      const tasks = [this.loadAreaCatalog(), this.loadPastPaperYears?.(true)];
-      if (includePersonalization) {
-        tasks.push(this.loadPersonalizationData());
+  assertScopedRouteContext(payload, expected, label) {
+    for (const [key, value] of Object.entries(expected)) {
+      if (String(payload?.[key] ?? "").trim() !== String(value).trim()) {
+        throw new Error(`${label} returned data for a different route.`);
       }
-      await Promise.all(tasks);
+    }
+  },
 
-      if (!silent) {
-        await this.router();
-      } else if (this.state.topbar.searchOpen) {
-        await this.renderSearchResults();
-      }
+  rememberInitialRoutePrefetch(routeKey, promise) {
+    const trackedPromise = Promise.resolve(promise);
+    this.initialRoutePrefetch = {
+      location: `${window.location.pathname}${window.location.search}`,
+      routeKey,
+      promise: trackedPromise,
+    };
+    return trackedPromise;
+  },
 
-      if (forceToast) this.showToast("Database refreshed.");
-    } catch (error) {
-      console.error("Supabase load error:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return;
+  consumeInitialRoutePrefetch(routeKey) {
+    const prefetch = this.initialRoutePrefetch;
+    if (
+      !prefetch ||
+      prefetch.routeKey !== routeKey ||
+      prefetch.location !==
+        `${window.location.pathname}${window.location.search}`
+    ) {
+      return null;
+    }
+    this.initialRoutePrefetch = null;
+    return prefetch.promise;
+  },
+
+  async loadScopedRouteData({
+    cacheName,
+    cacheKey,
+    rpcName,
+    params = {},
+    label,
+    normalize,
+    force = false,
+  }) {
+    const routeData = this.ensureRouteDataState();
+    const requestGeneration = Number(this.routeDataGeneration || 0);
+    if (!routeData[cacheName]) routeData[cacheName] = {};
+    const cache = routeData[cacheName];
+    if (!force && cache && Object.hasOwn(cache, cacheKey)) {
+      return cache[cacheKey];
+    }
+
+    const requestKey = `${requestGeneration}:${cacheName}:${cacheKey}`;
+    const activeRequest = this.routeDataLoadPromises[requestKey];
+    if (activeRequest) {
+      if (!force) return activeRequest;
+      try {
+        await activeRequest;
+      } catch {
+        // The forced request below is the retry.
       }
-      this.showFatalLoadError(
-        error?.message || "Could not load data from Supabase."
+    }
+
+    const request = (async () => {
+      const { data, error } = await this.withTimeout(
+        this.getSupabase().rpc(rpcName, params),
+        12000,
+        label
       );
-      if (forceToast) this.showToast("Refresh failed.");
+      if (error) throw error;
+      if (
+        !data ||
+        Array.isArray(data) ||
+        typeof data !== "object" ||
+        Number(data.schemaVersion) !== 1
+      ) {
+        throw new Error(`${label} returned an invalid response.`);
+      }
+      const normalized = normalize(data);
+      if (Number(this.routeDataGeneration || 0) === requestGeneration) {
+        routeData[cacheName][cacheKey] = normalized;
+      }
+      return normalized;
+    })();
+
+    this.routeDataLoadPromises[requestKey] = request;
+    try {
+      return await request;
     } finally {
-      this.state.refreshInFlight = false;
-      this.setRefreshButtonLoading(false);
+      if (this.routeDataLoadPromises?.[requestKey] === request) {
+        delete this.routeDataLoadPromises[requestKey];
+      }
+    }
+  },
+
+  async refreshDatabase() {
+    return this.hardRefreshFromDatabase();
+  },
+
+  prefetchInitialRouteData() {
+    const segments = window.location.pathname
+      .replace(/^\/+|\/+$/g, "")
+      .split("/")
+      .filter(Boolean);
+    const [root = "home"] = segments;
+    const params = new URLSearchParams(window.location.search);
+    const routeParam = (name) => String(params.get(name) || "").trim();
+
+    switch (root) {
+      case "year": {
+        const level = routeParam("year");
+        return level ? this.loadYearOverview(level) : null;
+      }
+      case "modules": {
+        const level = routeParam("level");
+        return level ? this.loadBrowseCourses(level) : null;
+      }
+      case "subtopics": {
+        const level = routeParam("level");
+        const area = routeParam("area");
+        return level && area ? this.loadBrowseSubtopics(level, area) : null;
+      }
+      case "types": {
+        const level = routeParam("level");
+        const area = routeParam("area");
+        const sub = routeParam("sub");
+        return level && area && sub
+          ? this.loadBrowseTypes(level, area, sub)
+          : null;
+      }
+      case "quizzes": {
+        const level = routeParam("level");
+        const area = routeParam("area");
+        const sub = routeParam("sub");
+        const type = routeParam("type").toLowerCase();
+        return level && area && sub && ["sba", "tf"].includes(type)
+          ? this.loadBrowseQuizzes(level, area, sub, type)
+          : null;
+      }
+      case "quiz": {
+        const quizId = routeParam("quizId");
+        if (!quizId) return null;
+        this.state.currentQuizId = quizId;
+        this.state.currentExamDurationMinutes =
+          this.normalizeQuizDurationMinutes(params.get("duration"));
+        this.state.negativeMarking = params.has("negative")
+          ? params.get("negative") === "1"
+          : params.get("mode") === "exam";
+        this.state.mode =
+          this.state.currentExamDurationMinutes || this.state.negativeMarking
+            ? "exam"
+            : "study";
+        return this.rememberInitialRoutePrefetch(
+          "quiz",
+          this.loadQuizSessionPage(quizId)
+        );
+      }
+      case "results": {
+        const quizId = routeParam("quizId");
+        if (!quizId) return null;
+        this.state.currentQuizId = quizId;
+        return this.rememberInitialRoutePrefetch(
+          "results",
+          this.loadQuizDescriptorsByIds([quizId])
+        );
+      }
+      case "past-papers": {
+        const [, pastPaperView = "topics"] = segments;
+        const pastPapers = this.getPastPaperState();
+        if (pastPaperView === "exams") {
+          const year = routeParam("year");
+          const topic = routeParam("topic");
+          if (!year || !topic) return null;
+          pastPapers.currentYear = year;
+          pastPapers.currentTopic = topic;
+          return this.rememberInitialRoutePrefetch(
+            "past-paper-exams",
+            this.ensurePastPaperExamsLoaded(year, topic)
+          );
+        }
+        if (pastPaperView === "session") {
+          const setId = routeParam("setId");
+          if (!setId) return null;
+          pastPapers.currentSetId = setId;
+          pastPapers.currentYear = routeParam("year");
+          pastPapers.currentTopic = routeParam("topic");
+          pastPapers.durationMinutes = this.normalizeQuizDurationMinutes(
+            params.get("duration")
+          );
+          pastPapers.negativeMarking = params.get("negative") === "1";
+          return this.rememberInitialRoutePrefetch(
+            "past-paper-session",
+            this.loadPastPaperSessionPage(setId)
+          );
+        }
+        if (pastPaperView === "review") {
+          const attemptId = routeParam("attemptId");
+          return attemptId
+            ? this.rememberInitialRoutePrefetch(
+                "past-paper-review",
+                this.loadPastPaperAttemptReview(attemptId)
+              )
+            : null;
+        }
+
+        const year = routeParam("year");
+        if (!year) return null;
+        pastPapers.currentYear = year;
+        return this.rememberInitialRoutePrefetch(
+          "past-paper-topics",
+          this.ensurePastPaperTopicsLoaded(year)
+        );
+      }
+      case "account":
+        return this.loadAccountPage();
+      default:
+        return null;
     }
   },
 
@@ -138,293 +351,853 @@ export const learnerFeatures = {
     this.scheduleAppDataCacheWrite();
   },
 
-  async loadPersonalizationData() {
-    const userId = this.state.currentUser?.id;
-    if (!userId) return;
+  isHomeBootstrapUnavailable(error) {
+    const code = String(error?.code || "")
+      .trim()
+      .toUpperCase();
+    const message = String(error?.message || "").toLowerCase();
 
-    try {
-      const [quizResponse, pastPaperResponse] = await Promise.all([
-        this.withTimeout(
-          this.getSupabase().rpc("app_user_attempts_enriched"),
-          12000,
-          "Loading account stats"
-        ),
-        this.withTimeout(
-          fetchPastPaperAttempts(this.getSupabase()),
-          12000,
-          "Loading exam stats"
-        ),
-      ]);
+    return (
+      code === "PGRST202" ||
+      (message.includes("app_home_bootstrap") &&
+        (code === "42883" ||
+          message.includes("could not find the function") ||
+          message.includes("does not exist") ||
+          message.includes("schema cache")))
+    );
+  },
 
-      const { data, error } = quizResponse;
+  isHomeBootstrapPayload(payload) {
+    return (
+      !!payload &&
+      !Array.isArray(payload) &&
+      typeof payload === "object" &&
+      Number(payload.schemaVersion) === 1 &&
+      !!payload.access &&
+      typeof payload.access === "object" &&
+      !!payload.dashboard &&
+      typeof payload.dashboard === "object" &&
+      Array.isArray(payload.dashboard.levels) &&
+      Array.isArray(payload.dashboard.pastPaperYears)
+    );
+  },
 
-      if (error) throw error;
-      if (
-        pastPaperResponse.error &&
-        !this.isRpcUnavailable(pastPaperResponse.error)
-      ) {
-        throw pastPaperResponse.error;
-      }
+  isShellBootstrapPayload(payload) {
+    return (
+      !!payload &&
+      !Array.isArray(payload) &&
+      typeof payload === "object" &&
+      Number(payload.schemaVersion) === 1 &&
+      !!payload.access &&
+      typeof payload.access === "object"
+    );
+  },
 
-      const attempts = (data || []).map((row) => ({
-        id: row.id,
-        userId: row.user_id,
-        quizId: row.quiz_id,
-        level: row.level ? String(row.level).trim() : "",
-        area: row.area ? String(row.area).trim() : "",
-        sub: row.sub ? String(row.sub).trim() : "",
-        quizTitle: row.quiz_title ? String(row.quiz_title).trim() : "",
-        questionType:
-          row.question_type === "tf"
-            ? "tf"
-            : row.question_type === "sba"
-              ? "sba"
-              : "",
-        mode: row.mode === "exam" ? "exam" : "study",
-        score: Number(row.score || 0),
-        totalQuestions: Number(row.total_questions || 0),
-        correctCount: Number(row.correct_count || 0),
-        wrongCount: Number(row.wrong_count || 0),
-        unansweredCount: Number(row.unanswered_count || 0),
-        percentage: Number(row.percentage || 0),
-        completedAt: row.completed_at || "",
-      }));
+  applyShellBootstrap(payload) {
+    const access = payload.access || {};
+    this.state.accessStatus = {
+      ...access,
+      hasAccess: !!(access.hasAccess ?? access.has_access),
+      accessExpiresAt:
+        access.accessExpiresAt ?? access.access_expires_at ?? null,
+      blockReason: access.blockReason ?? access.block_reason ?? "",
+    };
 
-      const pastPaperAttempts = (
-        pastPaperResponse.error ? [] : pastPaperResponse.data || []
-      ).map((row) => ({
-        id: row.id || `past_paper:${row.attempt_id || ""}`,
-        userId: row.user_id,
-        setId: row.set_id,
-        level: row.level ? String(row.level).trim() : "",
-        area: row.area ? String(row.area).trim() : "Past Papers",
-        sub: "Past Papers",
-        quizTitle: row.quiz_title ? String(row.quiz_title).trim() : "Past Paper",
-        assessmentKind: "past_paper",
-        section: "exam",
-        mode: "exam",
-        score: Number(row.score || 0),
-        totalQuestions: Number(row.total_questions || 0),
-        correctCount: Number(row.correct_count || 0),
-        wrongCount: Number(row.wrong_count || 0),
-        unansweredCount: Number(row.unanswered_count || 0),
-        percentage: Number(row.percentage || 0),
-        durationMinutes: Number(row.duration_minutes || 0) || null,
-        negativeMarking: row.negative_marking === true,
-        timedOut: row.timed_out === true,
-        completedAt: row.completed_at || "",
-      }));
-
-      this.setAttemptsData(attempts);
-      this.setPastPaperAttemptsData(pastPaperAttempts);
-      (data || []).forEach((row) => {
-        if (!row.level) return;
-        this.registerQuizDescriptor({
-          level: row.level,
-          quizId: row.quiz_id,
-          area: row.area,
-          sub: row.sub,
-          type: row.question_type,
-          title: row.quiz_title,
-          count: row.question_count ?? row.total_questions,
-        });
-      });
-
-      const needsHydration = attempts.some((attempt) => {
-        if (
-          attempt.level &&
-          attempt.area &&
-          attempt.sub &&
-          attempt.quizTitle &&
-          attempt.questionType
-        ) {
-          return false;
-        }
-        return !this.getQuizDescriptorById(attempt.quizId);
-      });
-
-      if (needsHydration) {
-        void this.hydrateAttemptDescriptors(attempts)
-          .then(async () => {
-            this.setAttemptsData(
-              this.enrichAttemptsWithDescriptors(this.state.attempts)
-            );
-
-            const routeRoot =
-              window.location.pathname
-                .replace(/^\/+|\/+$/g, "")
-                .split("/")
-                .filter(Boolean)[0] || "dashboard";
-            if (
-              [
-                "dashboard",
-                "modules",
-                "subtopics",
-                "types",
-                "quizzes",
-                "account",
-              ].includes(routeRoot)
-            ) {
-              await this.router();
-            }
-          })
-          .catch((hydrationError) => {
-            console.error(
-              "Deferred attempt descriptor hydration failed:",
-              hydrationError
-            );
-          });
-      }
-    } catch (error) {
-      console.error("Personalization load error:", error);
-      this.showToast("Could not load account stats.");
-      this.setAttemptsData([]);
-      this.setPastPaperAttemptsData([]);
+    const remoteTheme = payload.themePreference;
+    if (remoteTheme === "dark" || remoteTheme === "light") {
+      const resolvedTheme = writeStoredThemePreference(
+        normalizeThemePreference(remoteTheme)
+      );
+      this.applyThemePreference(resolvedTheme);
     }
   },
 
-  async hydrateAttemptDescriptors(attempts) {
-    const quizIds = [
-      ...new Set(
-        (attempts || []).map((attempt) => attempt.quizId).filter(Boolean)
-      ),
-    ];
-    if (!quizIds.length) return;
+  applyHomeBootstrap(payload) {
+    this.applyShellBootstrap(payload);
+    this.homeBootstrapLoadedThisPage = true;
 
-    const missingQuizIds = quizIds.filter(
-      (quizId) => !this.state.quizDetailsById[quizId]
+    const dashboard = payload.dashboard || {};
+    const levels = (dashboard.levels || [])
+      .map((row) => ({
+        id: row.levelId || row.level_id || "",
+        name: String(row.name || row.level || "").trim(),
+        displayOrder: Number(row.displayOrder ?? row.display_order ?? 0),
+        courseCount: Number(row.courseCount ?? row.course_count ?? 0),
+        doneCount: Number(row.doneCount ?? row.done_count ?? 0),
+        totalCount: Number(row.totalCount ?? row.total_count ?? 0),
+        percent: Number(row.percent || 0),
+      }))
+      .filter((row) => row.id && row.name)
+      .sort((a, b) => {
+        if (a.displayOrder !== b.displayOrder) {
+          return a.displayOrder - b.displayOrder;
+        }
+        return this.compareDisplayOrder(a.name, b.name);
+      });
+
+    this.state.levelList = levels.map(({ id, name, displayOrder }) => ({
+      id,
+      name,
+      displayOrder,
+    }));
+    this.state.levelIdByName = Object.fromEntries(
+      levels.map((row) => [row.name, row.id])
     );
-    if (!missingQuizIds.length) return;
+    this.state.areasByLevel = Object.fromEntries(
+      levels.map((row) => [
+        row.name,
+        Array.isArray(this.state.areasByLevel[row.name])
+          ? this.state.areasByLevel[row.name]
+          : [],
+      ])
+    );
+    this.state.areaList = this.state.levelList.flatMap(
+      (level) => this.state.areasByLevel[level.name] || []
+    );
 
-    try {
-      await this.loadQuizDescriptorsByIds(
-        missingQuizIds,
-        "Loading attempted quiz details"
+    this.state.homeDashboard = {
+      loaded: true,
+      generatedAt: payload.generatedAt || "",
+      stats: {
+        activeYears: Number(dashboard.activeYears || 0),
+        completedCount: Number(dashboard.completedCount || 0),
+        averageScore: Number(dashboard.averageScore || 0),
+      },
+      levelProgressByName: Object.fromEntries(
+        levels.map((row) => [
+          row.name,
+          {
+            doneCount: row.doneCount,
+            totalCount: row.totalCount,
+            courseCount: row.courseCount,
+            percent: row.percent,
+          },
+        ])
+      ),
+    };
+
+    const pastPapers = this.getPastPaperState?.();
+    if (pastPapers) {
+      pastPapers.years = this.normalizePastPaperYearRows(
+        dashboard.pastPaperYears
       );
-    } catch (error) {
-      console.error("Attempt descriptor hydration failed:", error);
+      pastPapers.yearsLoaded = true;
     }
+    this.scheduleAppDataCacheWrite();
+  },
+
+  async loadHomeBootstrap() {
+    if (this.homeBootstrapLoadPromise) return this.homeBootstrapLoadPromise;
+
+    const request = (async () => {
+      const { data, error } = await this.withTimeout(
+        fetchHomeBootstrap(this.getSupabase()),
+        12000,
+        "Loading homepage"
+      );
+      if (error) {
+        if (this.isHomeBootstrapUnavailable(error)) {
+          this.homeBootstrapUnavailable = true;
+          return false;
+        }
+        throw error;
+      }
+      if (!this.isHomeBootstrapPayload(data)) {
+        throw new Error("The homepage bootstrap response is invalid.");
+      }
+
+      this.applyHomeBootstrap(data);
+      this.homeBootstrapUnavailable = false;
+      return true;
+    })();
+
+    this.homeBootstrapLoadPromise = request;
+    try {
+      return await request;
+    } finally {
+      if (this.homeBootstrapLoadPromise === request) {
+        this.homeBootstrapLoadPromise = null;
+      }
+    }
+  },
+
+  async loadShellBootstrap() {
+    if (this.shellBootstrapLoadPromise) return this.shellBootstrapLoadPromise;
+
+    const request = (async () => {
+      const { data, error } = await this.withTimeout(
+        fetchShellBootstrap(this.getSupabase()),
+        12000,
+        "Loading application access"
+      );
+      if (error) {
+        if (this.isRpcUnavailable(error)) return false;
+        throw error;
+      }
+      if (!this.isShellBootstrapPayload(data)) {
+        throw new Error("The application bootstrap response is invalid.");
+      }
+      this.applyShellBootstrap(data);
+      return true;
+    })();
+
+    this.shellBootstrapLoadPromise = request;
+    try {
+      return await request;
+    } finally {
+      if (this.shellBootstrapLoadPromise === request) {
+        this.shellBootstrapLoadPromise = null;
+      }
+    }
+  },
+
+  async loadYearOverview(level, force = false) {
+    const { level: normalizedLevel } = this.requireScopedRouteParts(
+      "Year overview",
+      { level }
+    );
+    const cacheKey = this.getScopedRouteDataKey(normalizedLevel);
+    return this.loadScopedRouteData({
+      cacheName: "yearByLevel",
+      cacheKey,
+      rpcName: "app_year_overview",
+      params: { p_level: normalizedLevel },
+      label: "Loading year overview",
+      force,
+      normalize: (payload) => {
+        this.assertScopedRouteContext(
+          payload,
+          { level: normalizedLevel },
+          "Year overview"
+        );
+        const normalSource = payload.normal || null;
+        const pastPaperSource = payload.pastPaper || payload.past_paper || null;
+        const normal = normalSource
+          ? {
+              levelId: normalSource.levelId || normalSource.level_id || "",
+              courseCount: Number(
+                normalSource.courseCount ?? normalSource.course_count ?? 0
+              ),
+              doneCount: Number(
+                normalSource.doneCount ?? normalSource.done_count ?? 0
+              ),
+              totalCount: Number(
+                normalSource.totalCount ?? normalSource.total_count ?? 0
+              ),
+              percent: Number(normalSource.percent || 0),
+            }
+          : null;
+        const normalizedPastPaper = pastPaperSource
+          ? this.normalizePastPaperYearRows([pastPaperSource])[0] || null
+          : null;
+        return {
+          level: String(payload.level || normalizedLevel).trim(),
+          normal,
+          pastPaper: normalizedPastPaper,
+        };
+      },
+    });
+  },
+
+  async loadBrowseCourses(level, force = false) {
+    const { level: normalizedLevel } = this.requireScopedRouteParts(
+      "Course page",
+      { level }
+    );
+    const cacheKey = this.getScopedRouteDataKey(normalizedLevel);
+    const requestGeneration = Number(this.routeDataGeneration || 0);
+    const page = await this.loadScopedRouteData({
+      cacheName: "coursesByLevel",
+      cacheKey,
+      rpcName: "app_browse_courses",
+      params: { p_level: normalizedLevel },
+      label: "Loading courses",
+      force,
+      normalize: (payload) => {
+        this.assertScopedRouteContext(
+          payload,
+          { level: normalizedLevel },
+          "Course page"
+        );
+        return {
+          level: normalizedLevel,
+          courses: (Array.isArray(payload.courses) ? payload.courses : [])
+            .map((row) => {
+              const doneCount = Number(row.doneCount ?? row.done_count ?? 0);
+              const totalCount = Number(row.totalCount ?? row.total_count ?? 0);
+              return {
+                id: row.courseId || row.course_id || "",
+                name: String(row.name || row.area || "").trim(),
+                summary: {
+                  moduleCount: Number(row.moduleCount ?? row.module_count ?? 0),
+                  doneCount,
+                  totalCount,
+                  percent: Number(
+                    row.percent ??
+                      (totalCount
+                        ? Math.round((doneCount / totalCount) * 100)
+                        : 0)
+                  ),
+                },
+              };
+            })
+            .filter((row) => row.id && row.name)
+            .sort((a, b) => this.compareDisplayOrder(a.name, b.name)),
+        };
+      },
+    });
+
+    if (Number(this.routeDataGeneration || 0) !== requestGeneration) {
+      return page;
+    }
+    this.state.areasByLevel[normalizedLevel] = page.courses.map(
+      ({ id, name }) => ({ id, name })
+    );
+    this.state.areaList = Object.values(this.state.areasByLevel)
+      .flat()
+      .filter(
+        (row, index, rows) =>
+          row?.id &&
+          rows.findIndex((candidate) => candidate.id === row.id) === index
+      );
+    return page;
+  },
+
+  async loadBrowseSubtopics(level, area, force = false) {
+    const { level: normalizedLevel, area: normalizedArea } =
+      this.requireScopedRouteParts("Subtopic page", { level, area });
+    const cacheKey = this.getScopedRouteDataKey(
+      normalizedLevel,
+      normalizedArea
+    );
+    const requestGeneration = Number(this.routeDataGeneration || 0);
+    const page = await this.loadScopedRouteData({
+      cacheName: "subtopicsByCourse",
+      cacheKey,
+      rpcName: "app_browse_subtopics",
+      params: { p_level: normalizedLevel, p_area: normalizedArea },
+      label: "Loading subtopics",
+      force,
+      normalize: (payload) => {
+        this.assertScopedRouteContext(
+          payload,
+          { level: normalizedLevel, area: normalizedArea },
+          "Subtopic page"
+        );
+        return {
+          level: normalizedLevel,
+          area: normalizedArea,
+          courseId: payload.courseId || payload.course_id || "",
+          subtopics: (Array.isArray(payload.subtopics) ? payload.subtopics : [])
+            .map((row) => {
+              const doneCount = Number(row.doneCount ?? row.done_count ?? 0);
+              const totalCount = Number(row.totalCount ?? row.total_count ?? 0);
+              return {
+                id: row.subtopicId || row.subtopic_id || "",
+                name: String(row.name || row.subtopic_name || "").trim(),
+                summary: {
+                  doneCount,
+                  totalCount,
+                  percent: Number(
+                    row.percent ??
+                      (totalCount
+                        ? Math.round((doneCount / totalCount) * 100)
+                        : 0)
+                  ),
+                },
+              };
+            })
+            .filter((row) => row.id && row.name)
+            .sort((a, b) => this.compareDisplayOrder(a.name, b.name)),
+        };
+      },
+    });
+
+    if (Number(this.routeDataGeneration || 0) !== requestGeneration) {
+      return page;
+    }
+    const areaCacheKey = this.getAreaCacheKey(normalizedLevel, normalizedArea);
+    this.state.modulesByArea[areaCacheKey] = page.subtopics.map(
+      ({ id, name }) => ({ id, name, areaId: page.courseId })
+    );
+    this.state.subtopicProgressByArea[areaCacheKey] = Object.fromEntries(
+      page.subtopics.map((row) => [row.name, row.summary])
+    );
+    return page;
+  },
+
+  async loadBrowseTypes(level, area, sub, force = false) {
+    const {
+      level: normalizedLevel,
+      area: normalizedArea,
+      sub: normalizedSub,
+    } = this.requireScopedRouteParts("Question-format page", {
+      level,
+      area,
+      sub,
+    });
+    const cacheKey = this.getScopedRouteDataKey(
+      normalizedLevel,
+      normalizedArea,
+      normalizedSub
+    );
+    return this.loadScopedRouteData({
+      cacheName: "typesBySubtopic",
+      cacheKey,
+      rpcName: "app_browse_types",
+      params: {
+        p_level: normalizedLevel,
+        p_area: normalizedArea,
+        p_sub: normalizedSub,
+      },
+      label: "Loading question formats",
+      force,
+      normalize: (payload) => {
+        this.assertScopedRouteContext(
+          payload,
+          {
+            level: normalizedLevel,
+            area: normalizedArea,
+            sub: normalizedSub,
+          },
+          "Question-format page"
+        );
+        const providedTypes = Object.fromEntries(
+          (Array.isArray(payload.types) ? payload.types : []).map((row) => [
+            row.type === "tf" ? "tf" : "sba",
+            row,
+          ])
+        );
+        const types = ["sba", "tf"].map((type) => {
+          const row = providedTypes[type] || {};
+          const quizCount = Number(row.quizCount ?? row.quiz_count ?? 0);
+          const completedCount = Number(
+            row.completedCount ?? row.completed_count ?? 0
+          );
+          return {
+            type,
+            quizCount,
+            questionCount: Number(row.questionCount ?? row.question_count ?? 0),
+            completedCount,
+            percent: Number(
+              row.percent ??
+                (quizCount ? Math.round((completedCount / quizCount) * 100) : 0)
+            ),
+          };
+        });
+        const totalQuizCount = Number(
+          payload.totalQuizCount ??
+            payload.total_quiz_count ??
+            types.reduce((sum, row) => sum + row.quizCount, 0)
+        );
+        const completedQuizCount = Number(
+          payload.completedQuizCount ??
+            payload.completed_quiz_count ??
+            types.reduce((sum, row) => sum + row.completedCount, 0)
+        );
+        return {
+          level: normalizedLevel,
+          area: normalizedArea,
+          sub: normalizedSub,
+          totalQuestions: Number(
+            payload.totalQuestions ??
+              payload.total_questions ??
+              types.reduce((sum, row) => sum + row.questionCount, 0)
+          ),
+          totalQuizCount,
+          completedQuizCount,
+          percent: Number(
+            payload.percent ??
+              (totalQuizCount
+                ? Math.round((completedQuizCount / totalQuizCount) * 100)
+                : 0)
+          ),
+          types,
+        };
+      },
+    });
+  },
+
+  async loadBrowseQuizzes(level, area, sub, type, force = false) {
+    const {
+      level: normalizedLevel,
+      area: normalizedArea,
+      sub: normalizedSub,
+      type: normalizedType,
+    } = this.requireScopedRouteParts("Assessment page", {
+      level,
+      area,
+      sub,
+      type,
+    });
+    if (!["sba", "tf"].includes(normalizedType)) {
+      throw new Error("Assessment page received an invalid question type.");
+    }
+    const cacheKey = this.getScopedRouteDataKey(
+      normalizedLevel,
+      normalizedArea,
+      normalizedSub,
+      normalizedType
+    );
+    const requestGeneration = Number(this.routeDataGeneration || 0);
+    const page = await this.loadScopedRouteData({
+      cacheName: "quizzesByType",
+      cacheKey,
+      rpcName: "app_browse_quizzes",
+      params: {
+        p_level: normalizedLevel,
+        p_area: normalizedArea,
+        p_sub: normalizedSub,
+        p_type: normalizedType,
+      },
+      label: "Loading assessments",
+      force,
+      normalize: (payload) => {
+        this.assertScopedRouteContext(
+          payload,
+          {
+            level: normalizedLevel,
+            area: normalizedArea,
+            sub: normalizedSub,
+            type: normalizedType,
+          },
+          "Assessment page"
+        );
+        const quizzes = (Array.isArray(payload.quizzes) ? payload.quizzes : [])
+          .map((row) => ({
+            id: row.quizId || row.quiz_id || "",
+            title: String(row.title || row.quiz_title || "").trim(),
+            count: Number(row.questionCount ?? row.question_count ?? 0),
+            totalAttempts: Number(row.totalAttempts ?? row.total_attempts ?? 0),
+            bestPercentage:
+              row.bestPercentage === null ||
+              row.best_percentage === null ||
+              (row.bestPercentage === undefined &&
+                row.best_percentage === undefined)
+                ? null
+                : Number(row.bestPercentage ?? row.best_percentage ?? 0),
+          }))
+          .filter((row) => row.id && row.title)
+          .sort((a, b) => this.compareDisplayOrder(a.title, b.title));
+        const summary = payload.summary || {};
+        const completedCount = Number(
+          summary.completedCount ??
+            summary.completed_count ??
+            quizzes.filter((row) => row.totalAttempts > 0).length
+        );
+        return {
+          level: normalizedLevel,
+          area: normalizedArea,
+          sub: normalizedSub,
+          type: normalizedType,
+          topicIndex: Math.max(
+            1,
+            Number(payload.topicIndex ?? payload.topic_index ?? 1)
+          ),
+          summary: {
+            assessmentCount: Number(
+              summary.assessmentCount ??
+                summary.assessment_count ??
+                quizzes.length
+            ),
+            completedCount,
+            averageBestPercentage:
+              summary.averageBestPercentage === null ||
+              summary.average_best_percentage === null ||
+              (summary.averageBestPercentage === undefined &&
+                summary.average_best_percentage === undefined)
+                ? null
+                : Number(
+                    summary.averageBestPercentage ??
+                      summary.average_best_percentage ??
+                      0
+                  ),
+          },
+          quizzes,
+        };
+      },
+    });
+
+    if (Number(this.routeDataGeneration || 0) !== requestGeneration) {
+      return page;
+    }
+    const moduleCacheKey = this.getModuleCacheKey(
+      normalizedLevel,
+      normalizedArea,
+      normalizedSub
+    );
+    const moduleData = this.state.quizzesByModule[moduleCacheKey] || {
+      sba: {},
+      tf: {},
+    };
+    moduleData[normalizedType] = Object.fromEntries(
+      page.quizzes.map((quiz) => [
+        quiz.title,
+        { id: quiz.id, count: quiz.count },
+      ])
+    );
+    this.state.quizzesByModule[moduleCacheKey] = moduleData;
+    page.quizzes.forEach((quiz, index) => {
+      this.registerQuizDescriptor({
+        level: normalizedLevel,
+        quizId: quiz.id,
+        area: normalizedArea,
+        sub: normalizedSub,
+        type: normalizedType,
+        title: quiz.title,
+        count: quiz.count,
+        quizIndex: index + 1,
+      });
+    });
+    return page;
+  },
+
+  getEmptyAccountPage() {
+    const emptySection = {
+      attemptsCount: 0,
+      assessmentsDoneCount: 0,
+      averagePercentage: 0,
+    };
+    return {
+      attemptsCount: 0,
+      quizzesDoneCount: 0,
+      averagePercentage: 0,
+      bestAttempt: null,
+      sectionStats: {
+        normal: { ...emptySection },
+        exam: { ...emptySection },
+        combined: { ...emptySection },
+      },
+      courseStats: [],
+      recentAttempts: [],
+    };
+  },
+
+  normalizeAccountAttempt(row) {
+    if (!row || typeof row !== "object") return null;
+    return {
+      id: row.id || row.attemptKey || row.attempt_key || "",
+      quizId: row.quizId || row.quiz_id || "",
+      setId: row.setId || row.set_id || "",
+      assessmentKind:
+        row.assessmentKind === "past_paper" ||
+        row.assessment_kind === "past_paper"
+          ? "past_paper"
+          : "quiz",
+      level: String(row.level || "").trim(),
+      area: String(row.area || "").trim(),
+      sub: String(row.sub || "").trim(),
+      quizTitle: String(
+        row.quizTitle || row.quiz_title || row.title || ""
+      ).trim(),
+      mode: row.mode === "exam" ? "exam" : "study",
+      score: Number(row.score || 0),
+      totalQuestions: Number(
+        row.totalQuestions ?? row.total_questions ?? row.totalMarks ?? 0
+      ),
+      correctCount: Number(row.correctCount ?? row.correct_count ?? 0),
+      wrongCount: Number(row.wrongCount ?? row.wrong_count ?? 0),
+      unansweredCount: Number(row.unansweredCount ?? row.unanswered_count ?? 0),
+      percentage: Number(row.percentage || 0),
+      completedAt: row.completedAt || row.completed_at || "",
+    };
+  },
+
+  normalizeAccountPage(payload) {
+    const source = payload?.summary || payload || {};
+    const empty = this.getEmptyAccountPage();
+    const normalizeSection = (key) => {
+      const row =
+        source.sectionStats?.[key] || source.section_stats?.[key] || {};
+      return {
+        attemptsCount: Number(row.attemptsCount ?? row.attempts_count ?? 0),
+        assessmentsDoneCount: Number(
+          row.assessmentsDoneCount ?? row.assessments_done_count ?? 0
+        ),
+        averagePercentage: Number(
+          row.averagePercentage ?? row.average_percentage ?? 0
+        ),
+      };
+    };
+    const recentSource =
+      payload?.history?.items ||
+      source.recentAttempts ||
+      source.recent_attempts ||
+      [];
+    return {
+      ...empty,
+      attemptsCount: Number(source.attemptsCount ?? source.attempts_count ?? 0),
+      quizzesDoneCount: Number(
+        source.quizzesDoneCount ??
+          source.quizzes_done_count ??
+          source.assessmentsDoneCount ??
+          source.assessments_done_count ??
+          0
+      ),
+      averagePercentage: Number(
+        source.averagePercentage ?? source.average_percentage ?? 0
+      ),
+      bestAttempt: this.normalizeAccountAttempt(
+        source.bestAttempt || source.best_attempt
+      ),
+      sectionStats: {
+        normal: normalizeSection("normal"),
+        exam: normalizeSection("exam"),
+        combined: normalizeSection("combined"),
+      },
+      courseStats: (source.courseStats || source.course_stats || [])
+        .map((row) => ({
+          area: String(row.area || "Unknown course").trim(),
+          attempts: Number(row.attempts || 0),
+          quizzesDone: Number(
+            row.quizzesDone ??
+              row.quizzes_done ??
+              row.assessmentsDone ??
+              row.assessments_done ??
+              0
+          ),
+          averagePercentage: Number(
+            row.averagePercentage ?? row.average_percentage ?? 0
+          ),
+          bestAttempt: this.normalizeAccountAttempt(
+            row.bestAttempt || row.best_attempt
+          ),
+        }))
+        .sort(
+          (a, b) =>
+            b.averagePercentage - a.averagePercentage ||
+            this.compareDisplayOrder(a.area, b.area)
+        ),
+      recentAttempts: recentSource
+        .map((row) => this.normalizeAccountAttempt(row))
+        .filter(Boolean)
+        .slice(0, 10),
+    };
+  },
+
+  async loadAccountPage(force = false) {
+    return this.loadScopedRouteData({
+      cacheName: "accountByKey",
+      cacheKey: "first-page",
+      rpcName: "app_account_page",
+      params: { p_limit: 10 },
+      label: "Loading account",
+      force,
+      normalize: (payload) => this.normalizeAccountPage(payload),
+    });
+  },
+
+  async loadQuizSearchPage(rawQuery, force = false) {
+    const query = String(rawQuery ?? "").trim();
+    const cacheKey = this.normalizeSearchText
+      ? this.normalizeSearchText(query)
+      : query.toLowerCase();
+    const requestGeneration = Number(this.routeDataGeneration || 0);
+    const page = await this.loadScopedRouteData({
+      cacheName: "searchByQuery",
+      cacheKey,
+      rpcName: "app_quiz_search",
+      params: { p_query: cacheKey, p_limit: cacheKey ? 18 : 12 },
+      label: "Searching assessments",
+      force,
+      normalize: (payload) => ({
+        displayQuery: query,
+        browseMode: !!(payload.browseMode ?? payload.browse_mode ?? !query),
+        totalItems: Number(payload.totalItems ?? payload.total_items ?? 0),
+        totalMatches: Number(
+          payload.totalMatches ?? payload.total_matches ?? 0
+        ),
+        results: (Array.isArray(payload.results) ? payload.results : [])
+          .map((row) => ({
+            quizId: row.quizId || row.quiz_id || "",
+            level: String(row.level || "").trim(),
+            area: String(row.area || "").trim(),
+            sub: String(row.sub || "").trim(),
+            type:
+              row.type === "tf" || row.question_type === "tf" ? "tf" : "sba",
+            title: String(row.title || row.quiz_title || "").trim(),
+            count: Number(
+              row.count ?? row.questionCount ?? row.question_count ?? 0
+            ),
+          }))
+          .filter((row) => row.quizId && row.title),
+      }),
+    });
+    if (Number(this.routeDataGeneration || 0) !== requestGeneration) {
+      return page;
+    }
+    page.results.forEach((item) => {
+      this.registerQuizDescriptor({
+        level: item.level,
+        quizId: item.quizId,
+        area: item.area,
+        sub: item.sub,
+        type: item.type,
+        title: item.title,
+        count: item.count,
+      });
+    });
+    return page;
+  },
+
+  applyQuizContextPayload(payload) {
+    if (
+      !payload ||
+      Array.isArray(payload) ||
+      typeof payload !== "object" ||
+      Number(payload.schemaVersion) !== 1
+    ) {
+      throw new Error("Quiz context returned an invalid response.");
+    }
+
+    const descriptorRow = payload.descriptor;
+    if (!descriptorRow || typeof descriptorRow !== "object") return null;
+    const quizId = descriptorRow.quiz_id || descriptorRow.quizId || "";
+    const descriptor = this.registerQuizDescriptor({
+      quizId,
+      level: descriptorRow.level,
+      area: descriptorRow.area,
+      sub: descriptorRow.sub,
+      type: descriptorRow.question_type || descriptorRow.type,
+      title: descriptorRow.quiz_title || descriptorRow.title,
+      count: descriptorRow.question_count ?? descriptorRow.count,
+    });
+    if (descriptor) {
+      const siblings = (Array.isArray(payload.siblings) ? payload.siblings : [])
+        .map((row) => ({
+          quizId: row.quizId || row.quiz_id || "",
+          title: String(row.title || row.quiz_title || "").trim(),
+        }))
+        .filter((row) => row.quizId && row.title)
+        .sort((a, b) => this.compareDisplayOrder(a.title, b.title));
+      descriptor.quizIndex = Math.max(
+        1,
+        siblings.findIndex((row) => row.quizId === quizId) + 1
+      );
+    }
+    return descriptor;
   },
 
   async loadQuizDescriptorsByIds(quizIds, label = "Loading quiz details") {
     const ids = [...new Set((quizIds || []).filter(Boolean))];
-    if (!ids.length) return;
-
     const missingQuizIds = ids.filter(
       (quizId) => !this.state.quizDetailsById[quizId]
     );
     if (!missingQuizIds.length) return;
 
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_quiz_catalog_rows", {
-        p_quiz_ids: missingQuizIds,
-      }),
-      12000,
-      label
-    );
-
-    if (error) throw error;
-
-    this.registerQuizCatalogRows(data || []);
-  },
-
-  async loadQuizDescriptorsByIdsLegacy(
-    quizIds,
-    label = "Loading quiz details"
-  ) {
-    const missingQuizIds = [...new Set((quizIds || []).filter(Boolean))];
-    if (!missingQuizIds.length) return;
-
-    const supabase = this.getSupabase();
-    const quizzesRes = await this.withTimeout(
-      supabase
-        .from("quizzes")
-        .select("id, subtopic_id, title, question_type")
-        .in("id", missingQuizIds),
-      12000,
-      label
-    );
-
-    if (quizzesRes.error) throw quizzesRes.error;
-
-    const quizzes = quizzesRes.data || [];
-    const subtopicIds = [
-      ...new Set(quizzes.map((row) => row.subtopic_id).filter(Boolean)),
-    ];
-    const loadedQuizIds = quizzes.map((row) => row.id).filter(Boolean);
-
-    const [subtopicsRes, countsRes] = await Promise.all([
-      subtopicIds.length
-        ? this.withTimeout(
-            supabase
-              .from("subtopics")
-              .select("id, module_id, name")
-              .in("id", subtopicIds),
-            12000,
-            `${label} subtopics`
-          )
-        : Promise.resolve({ data: [], error: null }),
-      loadedQuizIds.length
-        ? this.withTimeout(
-            supabase
-              .from("quiz_question_counts")
-              .select("quiz_id, total_questions")
-              .in("quiz_id", loadedQuizIds),
-            12000,
-            `${label} counts`
-          )
-        : Promise.resolve({ data: [], error: null }),
-    ]);
-
-    if (subtopicsRes.error) throw subtopicsRes.error;
-    if (countsRes.error) throw countsRes.error;
-
-    const moduleIds = [
-      ...new Set(
-        (subtopicsRes.data || []).map((row) => row.module_id).filter(Boolean)
-      ),
-    ];
-    const modulesRes = moduleIds.length
-      ? await this.withTimeout(
-          supabase
-            .from("modules")
-            .select("id, level_id, name")
-            .in("id", moduleIds),
+    await Promise.all(
+      missingQuizIds.map(async (quizId) => {
+        const { data, error } = await this.withTimeout(
+          this.getSupabase().rpc("app_quiz_context", {
+            p_quiz_id: quizId,
+          }),
           12000,
-          `${label} courses`
-        )
-      : { data: [], error: null };
-    if (modulesRes.error) throw modulesRes.error;
-
-    const levelIds = [
-      ...new Set(
-        (modulesRes.data || []).map((row) => row.level_id).filter(Boolean)
-      ),
-    ];
-    const levelsRes = levelIds.length
-      ? await this.withTimeout(
-          supabase.from("levels").select("id, name").in("id", levelIds),
-          12000,
-          `${label} levels`
-        )
-      : { data: [], error: null };
-    if (levelsRes.error) throw levelsRes.error;
-
-    this.registerQuizCollection({
-      quizzes,
-      questionCountsMap: Object.fromEntries(
-        (countsRes.data || []).map((row) => [row.quiz_id, row.total_questions])
-      ),
-      subtopicsById: Object.fromEntries(
-        (subtopicsRes.data || []).map((row) => [row.id, row])
-      ),
-      modulesById: Object.fromEntries(
-        (modulesRes.data || []).map((row) => [row.id, row])
-      ),
-      levelsById: Object.fromEntries(
-        (levelsRes.data || []).map((row) => [row.id, row])
-      ),
-    });
+          label
+        );
+        if (error) throw error;
+        this.applyQuizContextPayload(data);
+      })
+    );
   },
 
   async ensureQuizContextFromId(quizId) {
@@ -466,9 +1239,41 @@ export const learnerFeatures = {
   },
 
   invalidateAttemptDerivedCaches() {
+    this.routeDataGeneration += 1;
     this.state.subtopicProgressByArea = {};
     this.state.accountSummary = null;
     this.state.quizAttemptSummariesById = {};
+    const routeData = this.ensureRouteDataState();
+    routeData.yearByLevel = {};
+    routeData.coursesByLevel = {};
+    routeData.subtopicsByCourse = {};
+    routeData.typesBySubtopic = {};
+    routeData.quizzesByType = {};
+    routeData.accountByKey = {};
+  },
+
+  invalidatePastPaperDerivedCaches() {
+    this.routeDataGeneration += 1;
+    const routeData = this.ensureRouteDataState();
+    routeData.yearByLevel = {};
+    routeData.accountByKey = {};
+    const pastPapers = this.getPastPaperState?.();
+    if (pastPapers) {
+      pastPapers.yearsLoaded = false;
+      pastPapers.topicsByYear = {};
+      pastPapers.examsByTopic = {};
+    }
+  },
+
+  invalidateHomeDashboardData() {
+    this.homeBootstrapLoadedThisPage = false;
+    this.state.homeDashboard = {
+      loaded: false,
+      generatedAt: "",
+      stats: null,
+      levelProgressByName: {},
+    };
+    this.clearPersistedAppDataCache?.();
   },
 
   setAttemptsData(attempts) {
@@ -544,22 +1349,6 @@ export const learnerFeatures = {
           new Date(b?.completedAt || 0).getTime() -
           new Date(a?.completedAt || 0).getTime()
       );
-  },
-
-  enrichAttemptsWithDescriptors(attempts) {
-    return (attempts || []).map((attempt) => {
-      const descriptor = this.getQuizDescriptorById(attempt.quizId);
-      if (!descriptor) return attempt;
-
-      return {
-        ...attempt,
-        level: attempt.level || descriptor.level || "",
-        area: attempt.area || descriptor.area || "",
-        sub: attempt.sub || descriptor.sub || "",
-        quizTitle: attempt.quizTitle || descriptor.title || "",
-        questionType: attempt.questionType || descriptor.type || "",
-      };
-    });
   },
 
   groupAttemptsByQuizId(attempts) {
@@ -643,7 +1432,16 @@ export const learnerFeatures = {
     }).format(date);
   },
 
-  registerQuizDescriptor({ quizId, level, area, sub, type, title, count }) {
+  registerQuizDescriptor({
+    quizId,
+    level,
+    area,
+    sub,
+    type,
+    title,
+    count,
+    quizIndex,
+  }) {
     if (!quizId) return null;
 
     const normalizedLevel = String(level || "").trim() || "Unknown level";
@@ -674,6 +1472,7 @@ export const learnerFeatures = {
       title: normalizedTitle,
       quizId,
       count: normalizedCount,
+      quizIndex: Math.max(1, Number(quizIndex || 1)),
     };
 
     return this.state.quizDetailsById[quizId];
@@ -811,240 +1610,6 @@ export const learnerFeatures = {
     };
   },
 
-  buildModuleAssessmentSummary({
-    moduleData = {},
-    level = "",
-    area = "",
-    sub = "",
-  } = {}) {
-    const quizIds = ["sba", "tf"].flatMap((type) =>
-      Object.values(moduleData?.[type] || {})
-        .map((quizMeta) => quizMeta?.id)
-        .filter(Boolean)
-    );
-
-    const uniqueQuizIds = [...new Set(quizIds)];
-    const doneCount = uniqueQuizIds.filter(
-      (quizId) => (this.state.attemptsByQuizId[quizId] || []).length
-    ).length;
-
-    return {
-      doneCount,
-      totalCount: uniqueQuizIds.length,
-    };
-  },
-
-  buildAreaAssessmentSummary(modules, progressByModule) {
-    const summary = (modules || []).reduce(
-      (aggregate, moduleRecord) => {
-        const progress = progressByModule?.[moduleRecord.name] || {
-          doneCount: 0,
-          totalCount: 0,
-        };
-        aggregate.doneCount += Number(progress.doneCount || 0);
-        aggregate.totalCount += Number(progress.totalCount || 0);
-        return aggregate;
-      },
-      {
-        doneCount: 0,
-        totalCount: 0,
-      }
-    );
-
-    return {
-      ...summary,
-      moduleCount: (modules || []).length,
-      percent: this.getCompletionPercent(summary),
-    };
-  },
-
-  getCompletionPercent({ doneCount = 0, totalCount = 0 } = {}) {
-    return totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
-  },
-
-  getCachedAreaModuleProgress(area, levelOverride = this.state.currentLevel) {
-    if (!area) return null;
-
-    const level = levelOverride;
-    const cacheKey = this.getAreaCacheKey(level, area);
-    if (this.state.subtopicProgressByArea[cacheKey]) {
-      return this.state.subtopicProgressByArea[cacheKey];
-    }
-
-    const modules = this.state.modulesByArea[cacheKey];
-    if (!Array.isArray(modules)) {
-      return null;
-    }
-
-    const progressEntries = [];
-    for (const moduleRecord of modules) {
-      const moduleData =
-        this.state.quizzesByModule[
-          this.getModuleCacheKey(level, area, moduleRecord.name)
-        ];
-      if (!moduleData) {
-        return null;
-      }
-
-      progressEntries.push([
-        moduleRecord.name,
-        this.buildModuleAssessmentSummary({
-          moduleData,
-          level,
-          area,
-          sub: moduleRecord.name,
-        }),
-      ]);
-    }
-
-    const progressByModule = Object.fromEntries(progressEntries);
-    this.state.subtopicProgressByArea[cacheKey] = progressByModule;
-    this.scheduleAppDataCacheWrite();
-    return progressByModule;
-  },
-
-  getCachedAreaProgressSummary(level, area) {
-    if (!level || !area) {
-      return null;
-    }
-
-    const modules = this.state.modulesByArea[this.getAreaCacheKey(level, area)];
-    if (!Array.isArray(modules)) {
-      return null;
-    }
-
-    const progressByModule = this.getCachedAreaModuleProgress(area, level);
-    if (!progressByModule) {
-      return null;
-    }
-
-    return this.buildAreaAssessmentSummary(modules, progressByModule);
-  },
-
-  getCachedLevelProgressSummary(level) {
-    if (!level) {
-      return null;
-    }
-
-    const areas = this.state.areasByLevel[level] || [];
-    const areaSummaries = [];
-
-    for (const areaRecord of areas) {
-      const areaSummary = this.getCachedAreaProgressSummary(
-        level,
-        areaRecord.name
-      );
-      if (!areaSummary) {
-        return null;
-      }
-      areaSummaries.push(areaSummary);
-    }
-
-    const summary = areaSummaries.reduce(
-      (aggregate, areaSummary) => {
-        aggregate.doneCount += Number(areaSummary.doneCount || 0);
-        aggregate.totalCount += Number(areaSummary.totalCount || 0);
-        return aggregate;
-      },
-      {
-        doneCount: 0,
-        totalCount: 0,
-      }
-    );
-
-    return {
-      ...summary,
-      courseCount: areas.length,
-      percent: this.getCompletionPercent(summary),
-    };
-  },
-
-  async getAreaProgressSummary(level, area) {
-    const cachedSummary = this.getCachedAreaProgressSummary(level, area);
-    if (cachedSummary) {
-      return cachedSummary;
-    }
-
-    if (!level || !area) {
-      return {
-        doneCount: 0,
-        totalCount: 0,
-        moduleCount: 0,
-        percent: 0,
-      };
-    }
-
-    const modules = await this.ensureAreaModulesLoaded(area, level);
-    const progressByModule = await this.getAreaModuleProgress(area, level);
-    return this.buildAreaAssessmentSummary(modules, progressByModule);
-  },
-
-  async getLevelProgressSummary(level) {
-    const cachedSummary = this.getCachedLevelProgressSummary(level);
-    if (cachedSummary) {
-      return cachedSummary;
-    }
-
-    if (!level) {
-      return {
-        doneCount: 0,
-        totalCount: 0,
-        courseCount: 0,
-        percent: 0,
-      };
-    }
-
-    const areas = this.state.areasByLevel[level] || [];
-    const areaSummaries = await Promise.all(
-      areas.map((areaRecord) => this.getAreaProgressSummary(level, areaRecord.name))
-    );
-    const summary = areaSummaries.reduce(
-      (aggregate, areaSummary) => {
-        aggregate.doneCount += Number(areaSummary.doneCount || 0);
-        aggregate.totalCount += Number(areaSummary.totalCount || 0);
-        return aggregate;
-      },
-      {
-        doneCount: 0,
-        totalCount: 0,
-      }
-    );
-
-    return {
-      ...summary,
-      courseCount: areas.length,
-      percent: this.getCompletionPercent(summary),
-    };
-  },
-
-  async loadAccountSummary(force = false) {
-    if (!force && this.state.accountSummary) return this.state.accountSummary;
-
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_account_summary"),
-      12000,
-      "Loading account summary"
-    );
-
-    if (error) throw error;
-
-    const summary = data || {
-      attemptsCount: 0,
-      quizzesDoneCount: 0,
-      averagePercentage: 0,
-      bestAttempt: null,
-      modeStats: {
-        study: { attemptsCount: 0, averagePercentage: 0 },
-        exam: { attemptsCount: 0, averagePercentage: 0 },
-      },
-      courseStats: [],
-      recentAttempts: [],
-    };
-
-    this.state.accountSummary = summary;
-    return summary;
-  },
-
   async getQuizAttemptSummary(quizId, force = false) {
     if (!quizId) return null;
     if (!force && this.state.quizAttemptSummariesById[quizId]) {
@@ -1065,23 +1630,32 @@ export const learnerFeatures = {
     return this.state.quizAttemptSummariesById[quizId];
   },
 
-  async getModuleTypeCounts(area, sub, force = false) {
-    const cacheKey = this.getModuleCacheKey(this.state.currentLevel, area, sub);
-    if (!force && this.state.moduleTypeCountsByModule[cacheKey]) {
-      return this.state.moduleTypeCountsByModule[cacheKey];
+  getCachedQuizAttemptCount(quizId) {
+    const summaryCount =
+      this.state.quizAttemptSummariesById[quizId]?.totalAttempts;
+    if (
+      summaryCount !== null &&
+      summaryCount !== undefined &&
+      Number.isFinite(Number(summaryCount))
+    ) {
+      return Number(summaryCount);
     }
-    const moduleData = await this.ensureModuleQuizzesLoaded(area, sub, force);
-    const counts = {
-      sba: Object.keys(moduleData.sba || {}).length,
-      tf: Object.keys(moduleData.tf || {}).length,
-    };
-    this.state.moduleTypeCountsByModule[cacheKey] = counts;
-    return counts;
+
+    for (const page of Object.values(
+      this.state.routeData?.quizzesByType || {}
+    )) {
+      const quiz = page?.quizzes?.find((row) => row.id === quizId);
+      if (quiz) return Number(quiz.totalAttempts || 0);
+    }
+
+    const localAttempts = this.getAttemptsForQuizId(quizId);
+    return localAttempts.length ? localAttempts.length : null;
   },
 
   async saveAttemptRecord(payload) {
     const userId = this.state.currentUser?.id;
     if (!userId) return { success: false, error: new Error("No active user.") };
+    const previousAttemptCount = this.getCachedQuizAttemptCount(payload.quizId);
 
     const { data, error } = await this.withTimeout(
       this.getSupabase()
@@ -1124,7 +1698,21 @@ export const learnerFeatures = {
     this.setAttemptsData([savedAttempt, ...this.state.attempts]);
     this.state.accountSummary = null;
     delete this.state.quizAttemptSummariesById[payload.quizId];
-    return { success: true, attempt: savedAttempt };
+    this.invalidateHomeDashboardData();
+
+    let attemptCount =
+      previousAttemptCount === null ? null : previousAttemptCount + 1;
+    if (attemptCount === null) {
+      try {
+        const summary = await this.getQuizAttemptSummary(payload.quizId, true);
+        attemptCount = Number(summary?.totalAttempts || 1);
+      } catch (summaryError) {
+        console.error("Quiz attempt count refresh failed:", summaryError);
+        attemptCount = this.getAttemptsForQuizId(payload.quizId).length || 1;
+      }
+    }
+
+    return { success: true, attempt: savedAttempt, attemptCount };
   },
 
   async resetAccountData() {
@@ -1146,6 +1734,8 @@ export const learnerFeatures = {
     }
 
     try {
+      this.cancelPendingAssessmentProgressWrites();
+      await this.assessmentProgressWriteQueue.catch(() => undefined);
       const resetResult = await this.withTimeout(
         this.getSupabase().rpc("app_reset_account_history"),
         12000,
@@ -1175,6 +1765,9 @@ export const learnerFeatures = {
       }
       this.setAttemptsData([]);
       this.setPastPaperAttemptsData([]);
+      this.invalidateAttemptDerivedCaches();
+      this.invalidatePastPaperDerivedCaches();
+      this.invalidateHomeDashboardData();
       this.state.accountSummary = null;
       this.state.quizAttemptSummariesById = {};
       this.showToast("Account history reset.");
@@ -1199,514 +1792,6 @@ export const learnerFeatures = {
 
   getModuleCacheKey(level, area, sub) {
     return `${level}|||${area}|||${sub}`;
-  },
-
-  hasAreaModulesCached(level, area) {
-    return Array.isArray(
-      this.state.modulesByArea[this.getAreaCacheKey(level, area)]
-    );
-  },
-
-  hasAreaProgressCached(level, area) {
-    return !!this.state.subtopicProgressByArea[
-      this.getAreaCacheKey(level, area)
-    ];
-  },
-
-  hasModuleQuizzesCached(level, area, sub) {
-    return !!this.state.quizzesByModule[
-      this.getModuleCacheKey(level, area, sub)
-    ];
-  },
-
-  getAreaRecord(level, area) {
-    return (
-      (this.state.areasByLevel[level] || []).find(
-        (item) => item.name === area
-      ) || null
-    );
-  },
-
-  async getSubtopicRecord(area, sub, levelOverride = this.state.currentLevel) {
-    const modules = await this.ensureAreaModulesLoaded(area, levelOverride);
-    return modules.find((item) => item.name === sub) || null;
-  },
-
-  async ensureAreaModulesLoaded(area, levelOverride = this.state.currentLevel) {
-    if (!area) return [];
-    const level = levelOverride;
-    const cacheKey = this.getAreaCacheKey(level, area);
-    if (this.state.modulesByArea[cacheKey])
-      return this.state.modulesByArea[cacheKey];
-
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_course_subtopics_progress", {
-        p_level: level,
-        p_area: area,
-      }),
-      12000,
-      "Loading modules"
-    );
-    if (error) throw error;
-
-    const modules = (data || [])
-      .map((row) => ({
-        id: row.subtopic_id,
-        name: String(row.subtopic_name || "").trim() || "General",
-        areaId: row.course_id || "",
-      }))
-      .sort((a, b) => this.compareDisplayOrder(a.name, b.name));
-
-    this.state.modulesByArea[cacheKey] = modules;
-    this.scheduleAppDataCacheWrite();
-    return modules;
-  },
-
-  async ensureAreaModulesLoadedLegacy(area, levelOverride = this.state.currentLevel) {
-    if (!area) return [];
-    const level = levelOverride;
-    const cacheKey = this.getAreaCacheKey(level, area);
-    if (this.state.modulesByArea[cacheKey])
-      return this.state.modulesByArea[cacheKey];
-
-    const areaRecord = this.getAreaRecord(level, area);
-    if (!areaRecord?.id) return [];
-
-    const { data, error } = await this.withTimeout(
-      this.getSupabase()
-        .from("subtopics")
-        .select("id, module_id, name")
-        .eq("module_id", areaRecord.id),
-      12000,
-      "Loading modules"
-    );
-
-    if (error) throw error;
-
-    const modules = (data || [])
-      .map((row) => ({
-        id: row.id,
-        name: String(row.name || "").trim() || "General",
-        areaId: row.module_id,
-      }))
-      .sort((a, b) => this.compareDisplayOrder(a.name, b.name));
-
-    this.state.modulesByArea[cacheKey] = modules;
-    return modules;
-  },
-
-  async getAreaModuleProgress(area, levelOverride = this.state.currentLevel) {
-    if (!area) return {};
-    const level = levelOverride;
-    const cacheKey = this.getAreaCacheKey(level, area);
-    const cachedProgress = this.getCachedAreaModuleProgress(area, level);
-    if (cachedProgress) {
-      return cachedProgress;
-    }
-
-    const modules = await this.ensureAreaModulesLoaded(area, level);
-    const progressEntries = await Promise.all(
-      modules.map(async (moduleRecord) => {
-        const moduleData = await this.ensureModuleQuizzesLoaded(
-          area,
-          moduleRecord.name,
-          false,
-          level
-        );
-        return [
-          moduleRecord.name,
-          this.buildModuleAssessmentSummary({
-            moduleData,
-            level,
-            area,
-            sub: moduleRecord.name,
-          }),
-        ];
-      })
-    );
-
-    const progress = Object.fromEntries(progressEntries);
-    this.state.subtopicProgressByArea[cacheKey] = progress;
-    this.scheduleAppDataCacheWrite();
-    return progress;
-  },
-
-  async getAreaModuleProgressLegacy(area, levelOverride = this.state.currentLevel) {
-    if (!area) return {};
-    const level = levelOverride;
-    const cacheKey = this.getAreaCacheKey(level, area);
-    if (this.state.subtopicProgressByArea[cacheKey]) {
-      return this.state.subtopicProgressByArea[cacheKey];
-    }
-    const modules = await this.ensureAreaModulesLoadedLegacy(area, level);
-    const subtopicIds = modules.map((row) => row.id).filter(Boolean);
-    if (!subtopicIds.length) {
-      this.state.subtopicProgressByArea[cacheKey] = {};
-      return {};
-    }
-
-    const { data, error } = await this.withTimeout(
-      this.getSupabase()
-        .from("quizzes")
-        .select("id, subtopic_id")
-        .in("subtopic_id", subtopicIds),
-      12000,
-      "Loading module progress"
-    );
-    if (error) throw error;
-
-    const attemptsByQuizId = this.state.attemptsByQuizId || {};
-    const progressByModule = {};
-
-    (data || []).forEach((quiz) => {
-      const moduleRecord = modules.find((item) => item.id === quiz.subtopic_id);
-      if (!moduleRecord) return;
-      if (!progressByModule[moduleRecord.name]) {
-        progressByModule[moduleRecord.name] = {
-          doneQuizIds: new Set(),
-          totalCount: 0,
-        };
-      }
-
-      progressByModule[moduleRecord.name].totalCount += 1;
-      if ((attemptsByQuizId[quiz.id] || []).length) {
-        progressByModule[moduleRecord.name].doneQuizIds.add(quiz.id);
-      }
-    });
-
-    const progress = Object.fromEntries(
-      modules.map((moduleRecord) => {
-        const moduleProgress = progressByModule[moduleRecord.name] || {
-          doneQuizIds: new Set(),
-          totalCount: 0,
-        };
-        return [
-          moduleRecord.name,
-          {
-            doneCount: moduleProgress.doneQuizIds.size,
-            totalCount: moduleProgress.totalCount,
-          },
-        ];
-      })
-    );
-
-    this.state.subtopicProgressByArea[cacheKey] = progress;
-    return progress;
-  },
-
-  async ensureModuleQuizzesLoaded(
-    area,
-    sub,
-    force = false,
-    levelOverride = this.state.currentLevel
-  ) {
-    const level = levelOverride;
-    const cacheKey = this.getModuleCacheKey(level, area, sub);
-    if (!force && this.state.quizzesByModule[cacheKey])
-      return this.state.quizzesByModule[cacheKey];
-
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_subtopic_quiz_list", {
-        p_level: level,
-        p_area: area,
-        p_sub: sub,
-      }),
-      12000,
-      "Loading quizzes"
-    );
-    if (error) throw error;
-
-    const grouped = this.registerQuizCatalogRows(
-      (data || []).map((row) => ({
-        quiz_id: row.quiz_id,
-        level,
-        area,
-        sub,
-        quiz_title: row.quiz_title,
-        question_type: row.question_type,
-        question_count: row.question_count,
-      }))
-    );
-
-    const moduleData = grouped[cacheKey] || { sba: {}, tf: {} };
-    this.state.quizzesByModule[cacheKey] = moduleData;
-    this.state.moduleTypeCountsByModule[cacheKey] = {
-      sba: Object.keys(moduleData.sba || {}).length,
-      tf: Object.keys(moduleData.tf || {}).length,
-    };
-    this.scheduleAppDataCacheWrite();
-    return moduleData;
-  },
-
-  async ensureModuleQuizzesLoadedLegacy(
-    area,
-    sub,
-    force = false,
-    levelOverride = this.state.currentLevel
-  ) {
-    const level = levelOverride;
-    const cacheKey = this.getModuleCacheKey(level, area, sub);
-    if (!force && this.state.quizzesByModule[cacheKey])
-      return this.state.quizzesByModule[cacheKey];
-
-    const subtopicRecord = await this.getSubtopicRecord(area, sub, level);
-    if (!subtopicRecord?.id) return { sba: {}, tf: {} };
-
-    const supabase = this.getSupabase();
-    const quizzesRes = await this.withTimeout(
-      supabase
-        .from("quizzes")
-        .select("id, title, question_type, subtopic_id")
-        .eq("subtopic_id", subtopicRecord.id),
-      12000,
-      "Loading quizzes"
-    );
-    if (quizzesRes.error) throw quizzesRes.error;
-
-    const quizIds = (quizzesRes.data || [])
-      .map((row) => row.id)
-      .filter(Boolean);
-    const countsRes = quizIds.length
-      ? await this.withTimeout(
-          supabase
-            .from("quiz_question_counts")
-            .select("quiz_id, total_questions")
-            .in("quiz_id", quizIds),
-          12000,
-          "Loading quiz counts"
-        )
-      : { data: [], error: null };
-    if (countsRes.error) throw countsRes.error;
-
-    const countByQuizId = Object.fromEntries(
-      (countsRes.data || []).map((row) => [row.quiz_id, row.total_questions])
-    );
-
-    const grouped = { sba: {}, tf: {} };
-    (quizzesRes.data || [])
-      .slice()
-      .sort((a, b) => this.compareDisplayOrder(a.title, b.title))
-      .forEach((row) => {
-        const type = row.question_type === "tf" ? "tf" : "sba";
-        const title = String(row.title || "").trim() || "Review Quiz";
-        const quizId = row.id;
-        const count = Number(countByQuizId[quizId] || 0);
-
-        grouped[type][title] = { id: quizId, count };
-        this.registerQuizDescriptor({
-          level,
-          quizId,
-          area,
-          sub,
-          type,
-          title,
-          count,
-        });
-      });
-
-    this.state.quizzesByModule[cacheKey] = grouped;
-    return grouped;
-  },
-
-  async ensureSearchIndexLoaded() {
-    if (this.state.search.indexLoaded) return;
-    const { data, error } = await this.withTimeout(
-      this.getSupabase().rpc("app_quiz_catalog_rows"),
-      12000,
-      "Loading search index"
-    );
-    if (error) throw error;
-
-    this.registerQuizCatalogRows(data || []);
-    this.state.search.indexLoaded = true;
-  },
-
-  async ensureSearchIndexLoadedLegacy() {
-    if (this.state.search.indexLoaded) return;
-
-    const supabase = this.getSupabase();
-    const quizzesRes = await this.withTimeout(
-      supabase.from("quizzes").select("id, subtopic_id, title, question_type"),
-      12000,
-      "Loading search index"
-    );
-    if (quizzesRes.error) throw quizzesRes.error;
-
-    const quizzes = quizzesRes.data || [];
-    const subtopicIds = [
-      ...new Set(quizzes.map((row) => row.subtopic_id).filter(Boolean)),
-    ];
-    const quizIds = quizzes.map((row) => row.id).filter(Boolean);
-
-    const countsRes = quizIds.length
-      ? await this.withTimeout(
-          supabase
-            .from("quiz_question_counts")
-            .select("quiz_id, total_questions")
-            .in("quiz_id", quizIds),
-          12000,
-          "Loading search counts"
-        )
-      : { data: [], error: null };
-    if (countsRes.error) throw countsRes.error;
-
-    const subtopicsRes = subtopicIds.length
-      ? await this.withTimeout(
-          supabase
-            .from("subtopics")
-            .select("id, module_id, name")
-            .in("id", subtopicIds),
-          12000,
-          "Loading search modules"
-        )
-      : { data: [], error: null };
-    if (subtopicsRes.error) throw subtopicsRes.error;
-
-    const moduleIds = [
-      ...new Set(
-        (subtopicsRes.data || []).map((row) => row.module_id).filter(Boolean)
-      ),
-    ];
-    const modulesRes = moduleIds.length
-      ? await this.withTimeout(
-          supabase
-            .from("modules")
-            .select("id, name, level_id")
-            .in("id", moduleIds),
-          12000,
-          "Loading search courses"
-        )
-      : { data: [], error: null };
-    if (modulesRes.error) throw modulesRes.error;
-
-    const levelIds = [
-      ...new Set(
-        (modulesRes.data || []).map((row) => row.level_id).filter(Boolean)
-      ),
-    ];
-    const levelsRes = levelIds.length
-      ? await this.withTimeout(
-          supabase.from("levels").select("id, name").in("id", levelIds),
-          12000,
-          "Loading search levels"
-        )
-      : { data: [], error: null };
-    if (levelsRes.error) throw levelsRes.error;
-
-    this.registerQuizCollection({
-      quizzes,
-      questionCountsMap: Object.fromEntries(
-        (countsRes.data || []).map((row) => [row.quiz_id, row.total_questions])
-      ),
-      subtopicsById: Object.fromEntries(
-        (subtopicsRes.data || []).map((row) => [row.id, row])
-      ),
-      modulesById: Object.fromEntries(
-        (modulesRes.data || []).map((row) => [row.id, row])
-      ),
-      levelsById: Object.fromEntries(
-        (levelsRes.data || []).map((row) => [row.id, row])
-      ),
-    });
-
-    this.state.search.indexLoaded = true;
-  },
-
-  registerQuizCatalogRows(rows) {
-    const groupedByModule = {};
-
-    (rows || [])
-      .slice()
-      .sort((a, b) => this.compareDisplayOrder(a.quiz_title, b.quiz_title))
-      .forEach((row) => {
-        const level = String(row.level || "").trim();
-        const area = String(row.area || "").trim();
-        const sub = String(row.sub || "").trim() || "General";
-        const type = row.question_type === "tf" ? "tf" : "sba";
-        const title = String(row.quiz_title || "").trim() || "Review Quiz";
-        const quizId = row.quiz_id;
-        const count = Number(row.question_count || 0);
-        const cacheKey = this.getModuleCacheKey(level, area, sub);
-
-        if (!groupedByModule[cacheKey]) {
-          groupedByModule[cacheKey] = { sba: {}, tf: {} };
-        }
-
-        groupedByModule[cacheKey][type][title] = { id: quizId, count };
-        this.registerQuizDescriptor({
-          level,
-          quizId,
-          area,
-          sub,
-          type,
-          title,
-          count,
-        });
-      });
-
-    Object.entries(groupedByModule).forEach(([cacheKey, grouped]) => {
-      this.state.quizzesByModule[cacheKey] = grouped;
-    });
-
-    this.scheduleAppDataCacheWrite();
-    return groupedByModule;
-  },
-
-  registerQuizCollection({
-    quizzes,
-    questionCountsMap = {},
-    subtopicsById = {},
-    modulesById = {},
-    levelsById = {},
-  }) {
-    const groupedByModule = {};
-
-    (quizzes || [])
-      .slice()
-      .sort((a, b) => this.compareDisplayOrder(a.title, b.title))
-      .forEach((quizRow) => {
-        const subtopicRow = subtopicsById[quizRow.subtopic_id];
-        if (!subtopicRow) return;
-        const moduleRow = modulesById[subtopicRow.module_id];
-        if (!moduleRow) return;
-        const levelRow = levelsById[moduleRow.level_id];
-        if (!levelRow) return;
-
-        const level = String(levelRow.name || "").trim();
-        const area = String(moduleRow.name || "").trim();
-        const sub = String(subtopicRow.name || "").trim() || "General";
-        const type = quizRow.question_type === "tf" ? "tf" : "sba";
-        const title = String(quizRow.title || "").trim() || "Review Quiz";
-        const quizId = quizRow.id;
-        const count = questionCountsMap[quizId] || 0;
-        const cacheKey = this.getModuleCacheKey(level, area, sub);
-
-        if (!groupedByModule[cacheKey]) {
-          groupedByModule[cacheKey] = { sba: {}, tf: {} };
-        }
-
-        groupedByModule[cacheKey][type][title] = { id: quizId, count };
-        this.state.quizMap[this.buildQuizKey(level, area, sub, type, title)] = {
-          id: quizId,
-          count,
-        };
-        this.state.quizDetailsById[quizId] = {
-          level,
-          area,
-          sub,
-          type,
-          title,
-          quizId,
-          count,
-        };
-      });
-
-    Object.entries(groupedByModule).forEach(([cacheKey, grouped]) => {
-      this.state.quizzesByModule[cacheKey] = grouped;
-    });
-
-    this.scheduleAppDataCacheWrite();
-    return groupedByModule;
   },
 
   buildQuizKey(level, area, sub, type, title) {
@@ -1738,64 +1823,66 @@ export const learnerFeatures = {
     );
   },
 
-  async fetchQuestionsForCurrentQuiz() {
-    await this.ensureModuleQuizzesLoaded(
-      this.state.currentArea,
-      this.state.currentSub
+  getCurrentQuizIndex(type = this.state.currentType) {
+    const descriptor = this.state.quizDetailsById[this.state.currentQuizId];
+    const descriptorIndex = Number(descriptor?.quizIndex || 0);
+    if (descriptorIndex > 0) return descriptorIndex;
+
+    const currentModule =
+      this.state.quizzesByModule[
+        this.getModuleCacheKey(
+          this.state.currentLevel,
+          this.state.currentArea,
+          this.state.currentSub
+        )
+      ] || {};
+    const orderedQuizzes = Object.entries(currentModule?.[type] || {})
+      .sort(([titleA], [titleB]) => this.compareDisplayOrder(titleA, titleB))
+      .map(([title, quiz]) => ({ ...quiz, title }));
+    return (
+      Math.max(
+        0,
+        orderedQuizzes.findIndex(
+          (quiz) =>
+            quiz.id === this.state.currentQuizId ||
+            quiz.title === this.state.currentQuizTitle
+        )
+      ) + 1
     );
-    const quizMeta = this.getCurrentQuizMeta();
-    if (!quizMeta) return [];
-    if (this.state.questionsByQuizId[quizMeta.id])
-      return this.state.questionsByQuizId[quizMeta.id];
+  },
 
-    try {
-      const { data, error } = await this.withTimeout(
-        this.getSupabase().rpc("app_quiz_questions", {
-          p_quiz_id: quizMeta.id,
-        }),
-        12000,
-        "Loading quiz questions"
-      );
+  normalizeQuizQuestionRows(rows, type = this.state.currentType) {
+    const normalizedType = type === "tf" ? "tf" : "sba";
+    return (Array.isArray(rows) ? rows : []).map((row) => {
+      const options = [
+        row.option_a,
+        row.option_b,
+        row.option_c,
+        row.option_d,
+        row.option_e,
+      ]
+        .filter((value) => value && String(value).trim())
+        .map((value) => String(value).trim());
+      const normalizedAnswer =
+        normalizedType === "tf"
+          ? this.normalizeTfAnswer(row.correct_answer)
+          : this.normalizeSbaAnswer(row.correct_answer, options);
 
-      if (error) throw error;
-
-      const questions = (data || []).map((row) => {
-        const type = this.state.currentType === "tf" ? "tf" : "sba";
-        const options = [
-          row.option_a,
-          row.option_b,
-          row.option_c,
-          row.option_d,
-          row.option_e,
-        ]
-          .filter((value) => value && String(value).trim())
-          .map((value) => String(value).trim());
-
-        const normalizedAnswer =
-          type === "tf"
-            ? this.normalizeTfAnswer(row.correct_answer)
-            : this.normalizeSbaAnswer(row.correct_answer, options);
-
-        return {
-          key: this.buildQuestionIdentity(row, type, options, normalizedAnswer),
-          q: String(row.question_text || "").trim(),
-          a: normalizedAnswer,
-          exp: row.explanation ? String(row.explanation).trim() : "",
-          img: row.image_url ? String(row.image_url).trim() : "",
-          options: type === "sba" ? options : null,
-          type,
-        };
-      });
-
-      this.state.questionsByQuizId[quizMeta.id] = questions;
-      return questions;
-    } catch (error) {
-      console.error("Question fetch error:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return [];
-      }
-      return [];
-    }
+      return {
+        key: this.buildQuestionIdentity(
+          row,
+          normalizedType,
+          options,
+          normalizedAnswer
+        ),
+        q: String(row.question_text || "").trim(),
+        a: normalizedAnswer,
+        exp: row.explanation ? String(row.explanation).trim() : "",
+        img: row.image_url ? String(row.image_url).trim() : "",
+        options: normalizedType === "sba" ? options : null,
+        type: normalizedType,
+      };
+    });
   },
 
   showFatalLoadError() {
@@ -2062,7 +2149,8 @@ export const learnerFeatures = {
         ? "browse-card-progress is-empty"
         : "browse-card-progress is-ghost";
     const progressFillPercent = hasProgressBar ? safePercent : 0;
-    const progressText = progressLabel || `${hasProgressBar ? safePercent : 0}%`;
+    const progressText =
+      progressLabel || `${hasProgressBar ? safePercent : 0}%`;
     const metaClassName = hasMetaRow
       ? "browse-card-meta"
       : "browse-card-meta is-empty";
@@ -2115,10 +2203,10 @@ export const learnerFeatures = {
               }
               ${
                 !locked && secondaryMetaText
-                    ? `
+                  ? `
                 <span class="browse-meta-item is-plain">${this.escapeHtml(secondaryMetaText)}</span>
               `
-                    : ""
+                  : ""
               }
             </div>
             <div class="${progressClassName}" aria-hidden="true">
@@ -2285,7 +2373,9 @@ export const learnerFeatures = {
       lockedLabel: "Available soon",
     });
 
-    card.onclick = isLocked ? null : () => this.navigate("year", { year: level });
+    card.onclick = isLocked
+      ? null
+      : () => this.navigate("year", { year: level });
   },
 
   renderAreaBrowseCard(card, level, areaRecord, index, summaryOverride = null) {
@@ -2470,6 +2560,153 @@ export const learnerFeatures = {
     console.error("Account progress sync failed:", error);
   },
 
+  ensureAssessmentProgressState() {
+    if (!this.assessmentProgressCache) this.assessmentProgressCache = {};
+    if (!this.assessmentProgressLoadPromises) {
+      this.assessmentProgressLoadPromises = {};
+    }
+    if (!this.assessmentProgressPendingWrites) {
+      this.assessmentProgressPendingWrites = {};
+    }
+    if (!this.assessmentSettingsById) this.assessmentSettingsById = {};
+  },
+
+  rememberAssessmentSettings(assessmentKind, assessmentId, settings = {}) {
+    this.ensureAssessmentProgressState();
+    const key = JSON.stringify([
+      String(assessmentKind || ""),
+      String(assessmentId || ""),
+    ]);
+    this.assessmentSettingsById[key] = {
+      durationMinutes: this.normalizeQuizDurationMinutes(
+        settings.durationMinutes
+      ),
+      negativeMarking: !!settings.negativeMarking,
+    };
+    try {
+      window.sessionStorage?.setItem(
+        `${this.getStorageNamespace()}:assessment-settings:${encodeURIComponent(key)}`,
+        JSON.stringify(this.assessmentSettingsById[key])
+      );
+    } catch {
+      // In-memory settings remain available when browser storage is blocked.
+    }
+    return this.assessmentSettingsById[key];
+  },
+
+  getRememberedAssessmentSettings(assessmentKind, assessmentId) {
+    this.ensureAssessmentProgressState();
+    const key = JSON.stringify([
+      String(assessmentKind || ""),
+      String(assessmentId || ""),
+    ]);
+    if (this.assessmentSettingsById[key]) {
+      return this.assessmentSettingsById[key];
+    }
+    try {
+      const saved = window.sessionStorage?.getItem(
+        `${this.getStorageNamespace()}:assessment-settings:${encodeURIComponent(key)}`
+      );
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      return this.rememberAssessmentSettings(
+        assessmentKind,
+        assessmentId,
+        parsed
+      );
+    } catch {
+      return null;
+    }
+  },
+
+  getAssessmentProgressCacheKey(
+    assessmentKind,
+    assessmentId,
+    progressKey = ""
+  ) {
+    return JSON.stringify([
+      String(assessmentKind || ""),
+      String(assessmentId || ""),
+      String(progressKey || ""),
+    ]);
+  },
+
+  getCachedAssessmentProgress(assessmentKind, assessmentId, progressKey = "") {
+    this.ensureAssessmentProgressState();
+    const key = this.getAssessmentProgressCacheKey(
+      assessmentKind,
+      assessmentId,
+      progressKey
+    );
+    return Object.hasOwn(this.assessmentProgressCache, key)
+      ? { hit: true, value: this.assessmentProgressCache[key] }
+      : { hit: false, value: null };
+  },
+
+  cacheAssessmentProgress(assessmentKind, assessmentId, progressKey, progress) {
+    this.ensureAssessmentProgressState();
+    this.assessmentProgressCache[
+      this.getAssessmentProgressCacheKey(
+        assessmentKind,
+        assessmentId,
+        progressKey
+      )
+    ] = progress;
+    const exactKey = progress?.progressKey || progress?.progress_key || "";
+    if (exactKey) {
+      this.assessmentProgressCache[
+        this.getAssessmentProgressCacheKey(
+          assessmentKind,
+          assessmentId,
+          exactKey
+        )
+      ] = progress;
+    }
+  },
+
+  invalidateAssessmentProgressCache(assessmentKind, assessmentId) {
+    this.ensureAssessmentProgressState();
+    Object.keys(this.assessmentProgressCache).forEach((key) => {
+      try {
+        const [kind, id] = JSON.parse(key);
+        if (
+          kind === String(assessmentKind || "") &&
+          id === String(assessmentId || "")
+        ) {
+          delete this.assessmentProgressCache[key];
+        }
+      } catch {
+        delete this.assessmentProgressCache[key];
+      }
+    });
+  },
+
+  cancelPendingAssessmentProgressWrites(
+    assessmentKind = null,
+    assessmentId = null,
+    progressKey = null
+  ) {
+    if (!this.assessmentProgressPendingWrites) return;
+    Object.entries(this.assessmentProgressPendingWrites).forEach(
+      ([key, pending]) => {
+        let matches = assessmentKind === null;
+        try {
+          const [kind, id, savedProgressKey] = JSON.parse(key);
+          matches =
+            (assessmentKind === null || kind === String(assessmentKind)) &&
+            (assessmentId === null || id === String(assessmentId)) &&
+            (progressKey === null || savedProgressKey === String(progressKey));
+        } catch {
+          matches = assessmentKind === null;
+        }
+        if (!matches) return;
+        if (pending?.timer) window.clearTimeout(pending.timer);
+        pending?.resolvers?.splice(0).forEach((resolve) => resolve());
+        delete this.assessmentProgressPendingWrites[key];
+      }
+    );
+  },
+
   async loadAccountAssessmentProgress(
     assessmentKind,
     assessmentId,
@@ -2485,24 +2722,61 @@ export const learnerFeatures = {
       return null;
     }
 
+    const cached = this.getCachedAssessmentProgress(
+      assessmentKind,
+      assessmentId,
+      progressKey
+    );
+    if (cached.hit) return cached.value;
+
+    const requestKey = this.getAssessmentProgressCacheKey(
+      assessmentKind,
+      assessmentId,
+      progressKey
+    );
+    if (this.assessmentProgressLoadPromises[requestKey]) {
+      return this.assessmentProgressLoadPromises[requestKey];
+    }
+
+    const cacheAtStart = this.assessmentProgressCache;
+    const request = (async () => {
+      try {
+        await this.assessmentProgressWriteQueue.catch(() => undefined);
+        const { data, error } = await this.withTimeout(
+          fetchAssessmentProgress(
+            this.getSupabase(),
+            userId,
+            assessmentKind,
+            assessmentId,
+            progressKey
+          ),
+          8000,
+          "Loading saved progress"
+        );
+        if (error) throw error;
+        const normalized = this.normalizeAccountAssessmentProgress(data);
+        if (this.assessmentProgressCache === cacheAtStart) {
+          this.cacheAssessmentProgress(
+            assessmentKind,
+            assessmentId,
+            progressKey,
+            normalized
+          );
+        }
+        return normalized;
+      } catch (error) {
+        this.handleAssessmentProgressError(error);
+        return null;
+      }
+    })();
+
+    this.assessmentProgressLoadPromises[requestKey] = request;
     try {
-      await this.assessmentProgressWriteQueue.catch(() => undefined);
-      const { data, error } = await this.withTimeout(
-        fetchAssessmentProgress(
-          this.getSupabase(),
-          userId,
-          assessmentKind,
-          assessmentId,
-          progressKey
-        ),
-        8000,
-        "Loading saved progress"
-      );
-      if (error) throw error;
-      return this.normalizeAccountAssessmentProgress(data);
-    } catch (error) {
-      this.handleAssessmentProgressError(error);
-      return null;
+      return await request;
+    } finally {
+      if (this.assessmentProgressLoadPromises?.[requestKey] === request) {
+        delete this.assessmentProgressLoadPromises[requestKey];
+      }
     }
   },
 
@@ -2533,12 +2807,9 @@ export const learnerFeatures = {
       draft.durationMinutes ?? context.durationMinutes
     );
     const payload = {
-      mode:
-        draft.mode === "exam" || context.mode === "exam" ? "exam" : "study",
+      mode: draft.mode === "exam" || context.mode === "exam" ? "exam" : "study",
       durationMinutes,
-      negativeMarking: !!(
-        draft.negativeMarking ?? context.negativeMarking
-      ),
+      negativeMarking: !!(draft.negativeMarking ?? context.negativeMarking),
       context,
       progressData: {
         answers:
@@ -2552,21 +2823,50 @@ export const learnerFeatures = {
       timerExpiresAt: draft.timerExpiresAt || null,
     };
     payload.progressKey = this.buildAssessmentProgressKey(payload);
+    this.invalidateAssessmentProgressCache(assessmentKind, assessmentId);
+    this.cacheAssessmentProgress(
+      assessmentKind,
+      assessmentId,
+      payload.progressKey,
+      { ...draft, progressKey: payload.progressKey }
+    );
 
-    return this.enqueueAssessmentProgressWrite(async () => {
-      const { error } = await this.withTimeout(
-        upsertAssessmentProgress(
-          this.getSupabase(),
-          userId,
-          assessmentKind,
-          assessmentId,
-          payload
-        ),
-        8000,
-        "Saving progress"
-      );
-      if (error) throw error;
+    this.ensureAssessmentProgressState();
+    const writeKey = this.getAssessmentProgressCacheKey(
+      assessmentKind,
+      assessmentId,
+      payload.progressKey
+    );
+    const pending = this.assessmentProgressPendingWrites[writeKey] || {
+      resolvers: [],
+      timer: null,
+    };
+    if (pending.timer) window.clearTimeout(pending.timer);
+    pending.payload = payload;
+
+    const completion = new Promise((resolve) => {
+      pending.resolvers.push(resolve);
     });
+    pending.timer = window.setTimeout(async () => {
+      delete this.assessmentProgressPendingWrites[writeKey];
+      await this.enqueueAssessmentProgressWrite(async () => {
+        const { error } = await this.withTimeout(
+          upsertAssessmentProgress(
+            this.getSupabase(),
+            userId,
+            assessmentKind,
+            assessmentId,
+            pending.payload
+          ),
+          8000,
+          "Saving progress"
+        );
+        if (error) throw error;
+      });
+      pending.resolvers.splice(0).forEach((resolve) => resolve());
+    }, 400);
+    this.assessmentProgressPendingWrites[writeKey] = pending;
+    return completion;
   },
 
   clearAccountAssessmentProgress(assessmentKind, assessmentId, settings = {}) {
@@ -2575,6 +2875,13 @@ export const learnerFeatures = {
       return Promise.resolve();
     }
     const progressKey = this.buildAssessmentProgressKey(settings);
+    this.invalidateAssessmentProgressCache(assessmentKind, assessmentId);
+    this.ensureAssessmentProgressState();
+    this.cancelPendingAssessmentProgressWrites(
+      assessmentKind,
+      assessmentId,
+      progressKey
+    );
 
     return this.enqueueAssessmentProgressWrite(async () => {
       const { error } = await this.withTimeout(
@@ -2651,18 +2958,26 @@ export const learnerFeatures = {
     if (!quizId || !(await this.ensureQuizContextFromId(quizId))) return;
 
     const quizMeta = this.getCurrentQuizMeta();
-    const savedProgress = await this.loadAccountAssessmentProgress(
+    const rememberedSettings = this.getRememberedAssessmentSettings(
       "quiz",
       quizId
     );
+    const savedProgress = rememberedSettings
+      ? null
+      : await this.loadAccountAssessmentProgress("quiz", quizId);
     const settings = await quizSettingsDialog({
       title: this.state.currentQuizTitle || "Start quiz",
       submitLabel: "Start quiz",
       cancelLabel: "Cancel",
       min: 5,
       max: 30,
-      initial: savedProgress?.durationMinutes || null,
-      negativeMarking: !!savedProgress?.negativeMarking,
+      initial:
+        rememberedSettings?.durationMinutes ||
+        savedProgress?.durationMinutes ||
+        null,
+      negativeMarking: !!(
+        rememberedSettings?.negativeMarking ?? savedProgress?.negativeMarking
+      ),
     });
     if (!settings || !quizMeta) return;
 
@@ -2671,6 +2986,10 @@ export const learnerFeatures = {
     );
     const negativeMarking = !!settings.negativeMarking;
     const mode = durationMinutes || negativeMarking ? "exam" : "study";
+    this.rememberAssessmentSettings("quiz", quizId, {
+      durationMinutes,
+      negativeMarking,
+    });
 
     await this.navigate("quiz", {
       quizId: quizMeta.id,
@@ -2800,12 +3119,71 @@ export const learnerFeatures = {
     );
   },
 
-  async loadSavedQuizDraft(context = this.getCurrentQuizContext()) {
-    const localDraft = this.readStoredJson(this.getQuizDraftStorageKey(context));
-    const accountDraft = await this.loadAccountAssessmentProgress(
+  async loadQuizSessionPage(quizId) {
+    const normalizedQuizId = String(quizId || "").trim();
+    if (!normalizedQuizId) return null;
+
+    const progressKey = this.buildAssessmentProgressKey({
+      mode: this.state.mode,
+      durationMinutes: this.state.currentExamDurationMinutes,
+      negativeMarking: this.state.negativeMarking,
+    });
+    const cachedProgress = this.getCachedAssessmentProgress(
       "quiz",
-      this.state.currentQuizId,
-      this.buildAssessmentProgressKey({ context })
+      normalizedQuizId,
+      progressKey
+    );
+    const { data, error } = await this.withTimeout(
+      this.getSupabase().rpc("app_quiz_session", {
+        p_quiz_id: normalizedQuizId,
+        p_progress_key: cachedProgress.hit ? null : progressKey,
+      }),
+      12000,
+      "Loading quiz"
+    );
+    if (error) throw error;
+    if (
+      !data ||
+      Array.isArray(data) ||
+      typeof data !== "object" ||
+      Number(data.schemaVersion) !== 1 ||
+      !Array.isArray(data.questions)
+    ) {
+      throw new Error("Quiz session returned an invalid response.");
+    }
+
+    const descriptor = this.applyQuizContextPayload(data);
+    if (!descriptor || descriptor.quizId !== normalizedQuizId) return null;
+    this.state.currentQuizId = descriptor.quizId;
+    this.state.currentLevel = descriptor.level;
+    this.state.currentArea = descriptor.area;
+    this.state.currentSub = descriptor.sub;
+    this.state.currentType = descriptor.type;
+    this.state.currentQuizTitle = descriptor.title;
+    this.rememberAssessmentSettings("quiz", normalizedQuizId, {
+      durationMinutes: this.state.currentExamDurationMinutes,
+      negativeMarking: this.state.negativeMarking,
+    });
+
+    const questions = this.normalizeQuizQuestionRows(
+      data.questions,
+      descriptor.type
+    );
+    this.state.questionsByQuizId[normalizedQuizId] = questions;
+
+    let accountDraft = cachedProgress.value;
+    if (!cachedProgress.hit) {
+      accountDraft = this.normalizeAccountAssessmentProgress(data.progress);
+      this.cacheAssessmentProgress(
+        "quiz",
+        normalizedQuizId,
+        progressKey,
+        accountDraft
+      );
+    }
+    const context = this.getCurrentQuizContext();
+    const localDraft = this.readStoredJson(
+      this.getQuizDraftStorageKey(context)
     );
     const matchingLocal = this.isQuizDraftForContext(localDraft, context)
       ? localDraft
@@ -2817,17 +3195,11 @@ export const learnerFeatures = {
       matchingLocal,
       matchingAccount
     );
-
     if (draft === matchingAccount && draft) {
       this.writeStoredJson(this.getQuizDraftStorageKey(context), draft);
-    } else if (draft === matchingLocal && draft) {
-      void this.saveAccountAssessmentProgress(
-        "quiz",
-        this.state.currentQuizId,
-        draft
-      );
     }
-    return draft;
+
+    return { descriptor, questions, draft };
   },
 
   saveQuizDraft(draft, context = this.getCurrentQuizContext()) {
@@ -2938,18 +3310,18 @@ export const learnerFeatures = {
     }
 
     if (this.dom.quizProgressCopy) {
-      this.dom.quizProgressCopy.textContent =
-        this.state.currentExamDurationMinutes
-          ? this.formatQuizTimer(
-              Number.isFinite(this.state.quizTimeRemainingSeconds)
-                ? this.state.quizTimeRemainingSeconds
-                : this.normalizeQuizDurationMinutes(
-                    this.state.currentExamDurationMinutes
-                  ) * 60
-            )
-          : totalQuestions
-            ? `${answeredQuestions}/${totalQuestions} answered`
-            : "0/0 answered";
+      this.dom.quizProgressCopy.textContent = this.state
+        .currentExamDurationMinutes
+        ? this.formatQuizTimer(
+            Number.isFinite(this.state.quizTimeRemainingSeconds)
+              ? this.state.quizTimeRemainingSeconds
+              : this.normalizeQuizDurationMinutes(
+                  this.state.currentExamDurationMinutes
+                ) * 60
+          )
+        : totalQuestions
+          ? `${answeredQuestions}/${totalQuestions} answered`
+          : "0/0 answered";
     }
 
     if (this.dom.quizProgressCount) {
@@ -2971,29 +3343,7 @@ export const learnerFeatures = {
 
     const type = snapshot?.context?.type || this.state.currentType || "sba";
     const typeMeta = this.getTypeMeta(type);
-    const currentModule =
-      this.state.quizzesByModule[
-        this.getModuleCacheKey(
-          this.state.currentLevel,
-          this.state.currentArea,
-          this.state.currentSub
-        )
-      ] || {};
-    const orderedQuizzes = Object.entries(currentModule?.[type] || {})
-      .sort(([titleA], [titleB]) => this.compareDisplayOrder(titleA, titleB))
-      .map(([title, quiz]) => ({
-        ...quiz,
-        title,
-      }));
-    const quizIndex =
-      Math.max(
-        0,
-        orderedQuizzes.findIndex(
-          (quiz) =>
-            quiz.id === this.state.currentQuizId ||
-            quiz.title === this.state.currentQuizTitle
-        )
-      ) + 1;
+    const quizIndex = this.getCurrentQuizIndex(type);
     const attemptStats = this.getAttemptStatsForQuizId(
       this.state.currentQuizId
     );
@@ -3161,7 +3511,9 @@ export const learnerFeatures = {
     };
 
     if (!results) {
-      const legacyResults = this.parseLegacyResultCards(snapshot?.cardsHtml || "");
+      const legacyResults = this.parseLegacyResultCards(
+        snapshot?.cardsHtml || ""
+      );
       if (legacyResults.length) {
         results = legacyResults;
         snapshot.results = legacyResults;
@@ -3241,14 +3593,6 @@ export const learnerFeatures = {
 
   async renderDashboard() {
     const routeUrl = `${window.location.pathname}${window.location.search}`;
-    try {
-      await this.loadPastPaperYears?.();
-    } catch (error) {
-      console.error("Past paper year load failed:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return;
-      }
-    }
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
     const firstName =
       displayName.split(/\s+/).filter(Boolean)[0] || displayName;
@@ -3264,15 +3608,26 @@ export const learnerFeatures = {
               : 1;
     const displayLevels = this.buildDashboardDisplayLevels();
 
-    const activeYears = this.state.levelList.filter((levelRecord) => {
-      const attemptsForLevel = (this.state.attempts || []).filter((attempt) => {
-        const descriptor = this.getQuizDescriptorById(attempt.quizId);
-        return (attempt.level || descriptor?.level || "") === levelRecord.name;
-      });
-      return attemptsForLevel.length > 0;
-    }).length;
-    const completedCount = Number(this.state.userStats?.quizzesDoneCount || 0);
-    const averageScore = Number(this.state.userStats?.averagePercentage || 0);
+    const bootstrapStats = this.state.homeDashboard?.stats;
+    const activeYears = bootstrapStats
+      ? Number(bootstrapStats.activeYears || 0)
+      : this.state.levelList.filter((levelRecord) => {
+          const attemptsForLevel = (this.state.attempts || []).filter(
+            (attempt) => {
+              const descriptor = this.getQuizDescriptorById(attempt.quizId);
+              return (
+                (attempt.level || descriptor?.level || "") === levelRecord.name
+              );
+            }
+          );
+          return attemptsForLevel.length > 0;
+        }).length;
+    const completedCount = bootstrapStats
+      ? Number(bootstrapStats.completedCount || 0)
+      : Number(this.state.userStats?.quizzesDoneCount || 0);
+    const averageScore = bootstrapStats
+      ? Number(bootstrapStats.averageScore || 0)
+      : Number(this.state.userStats?.averagePercentage || 0);
 
     if (this.dom.dashboardGreeting) {
       this.dom.dashboardGreeting.textContent = this.getTimeGreeting();
@@ -3312,14 +3667,13 @@ export const learnerFeatures = {
       dashboardSectionCount.textContent = `${displayLevels.length} years total`;
     }
 
-    const levelSummaries = await Promise.all(
-      displayLevels.map(async (levelRecord) => [
-        levelRecord.name,
-        levelRecord.locked
-          ? this.getDefaultLevelProgressSummary(levelRecord)
-          : await this.getLevelProgressSummary(levelRecord.name),
-      ])
-    );
+    const levelSummaries = displayLevels.map((levelRecord) => [
+      levelRecord.name,
+      levelRecord.locked
+        ? this.getDefaultLevelProgressSummary(levelRecord)
+        : this.state.homeDashboard?.levelProgressByName?.[levelRecord.name] ||
+          this.getDefaultLevelProgressSummary(levelRecord),
+    ]);
     if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
       return;
     }
@@ -3343,22 +3697,30 @@ export const learnerFeatures = {
   async renderModules() {
     const routeUrl = `${window.location.pathname}${window.location.search}`;
     const level = this.state.currentLevel;
-    if (!level || !this.state.levelIdByName[level]) {
-      this.navigate("home");
+    if (!level) {
+      await this.navigate("home", {}, { replace: true });
       return;
     }
 
-    const areaRecords = this.state.areasByLevel[level] || [];
-    this.showLoadingView();
-    const areaSummaries = await Promise.all(
-      areaRecords.map(async (areaRecord) => [
-        areaRecord.name,
-        await this.getAreaProgressSummary(level, areaRecord.name),
-      ])
-    );
+    const cacheKey = this.getScopedRouteDataKey(level);
+    if (!this.state.routeData?.coursesByLevel?.[cacheKey]) {
+      this.showLoadingView();
+    }
+
+    let page;
+    try {
+      page = await this.loadBrowseCourses(level);
+    } catch (error) {
+      console.error("Course page load failed:", error);
+      if (await this.handleAccessRestriction(error)) return;
+      this.showFatalLoadError(error?.message || "Could not load courses.");
+      return;
+    }
     if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
       return;
     }
+
+    const areaRecords = page.courses;
 
     document.getElementById("module-page-title").textContent = level;
     document.getElementById("modules-page-kicker").textContent = level;
@@ -3367,7 +3729,6 @@ export const learnerFeatures = {
       `${areaRecords.length} total`;
     this.dom.moduleGrid.innerHTML = "";
 
-    const areaSummaryByName = Object.fromEntries(areaSummaries);
     areaRecords.forEach((areaRecord, index) => {
       const card = document.createElement("div");
       this.renderAreaBrowseCard(
@@ -3375,7 +3736,7 @@ export const learnerFeatures = {
         level,
         areaRecord,
         index,
-        areaSummaryByName[areaRecord.name]
+        areaRecord.summary
       );
       this.dom.moduleGrid.appendChild(card);
     });
@@ -3386,74 +3747,37 @@ export const learnerFeatures = {
   async renderSubtopics() {
     const routeUrl = `${window.location.pathname}${window.location.search}`;
     const { currentLevel, currentArea } = this.state;
-    if (
-      !currentLevel ||
-      !currentArea ||
-      !this.getAreaRecord(currentLevel, currentArea)
-    ) {
-      this.navigate("modules", { level: currentLevel });
+    if (!currentLevel || !currentArea) {
+      await this.navigate(
+        currentLevel ? "modules" : "home",
+        currentLevel ? { level: currentLevel } : {},
+        { replace: true }
+      );
       return;
     }
 
-    const areaCacheKey = this.getAreaCacheKey(currentLevel, currentArea);
-    const everythingCached =
-      this.hasAreaModulesCached(currentLevel, currentArea) &&
-      !!this.state.subtopicProgressByArea[areaCacheKey];
-
-    if (!everythingCached) {
+    const cacheKey = this.getScopedRouteDataKey(currentLevel, currentArea);
+    if (!this.state.routeData?.subtopicsByCourse?.[cacheKey]) {
       this.showLoadingView();
     }
 
-    let modules;
+    let page;
     try {
-      modules = await this.ensureAreaModulesLoaded(currentArea);
+      page = await this.loadBrowseSubtopics(currentLevel, currentArea);
     } catch (error) {
-      console.error("Module load failed:", error);
+      console.error("Subtopic page load failed:", error);
       if (await this.handleAccessRestriction(error)) {
         return;
       }
-      this.showFatalLoadError(error?.message || "Could not load modules.");
+      this.showFatalLoadError(error?.message || "Could not load subtopics.");
       return;
-    }
-
-    let progressByModule =
-      this.getCachedAreaModuleProgress(currentArea, currentLevel) || {};
-
-    if (!this.state.subtopicProgressByArea[areaCacheKey] && modules.length) {
-      try {
-        const progressEntries = await Promise.all(
-          modules.map(async (moduleRecord) => {
-            const moduleData = await this.ensureModuleQuizzesLoaded(
-              currentArea,
-              moduleRecord.name
-            );
-            return [
-              moduleRecord.name,
-              this.buildModuleAssessmentSummary({
-                moduleData,
-                level: currentLevel,
-                area: currentArea,
-                sub: moduleRecord.name,
-              }),
-            ];
-          })
-        );
-        progressByModule = Object.fromEntries(progressEntries);
-        this.state.subtopicProgressByArea[areaCacheKey] = progressByModule;
-        this.scheduleAppDataCacheWrite();
-      } catch (error) {
-        console.error("Module progress load failed:", error);
-        if (await this.handleAccessRestriction(error)) {
-          return;
-        }
-        this.showToast("Could not load module progress.");
-        return;
-      }
     }
 
     if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
       return;
     }
+
+    const modules = page.subtopics;
 
     document.getElementById("subtopics-page-title").textContent = currentArea;
     document.getElementById("subtopics-page-kicker").textContent = currentLevel;
@@ -3468,7 +3792,7 @@ export const learnerFeatures = {
         card,
         moduleRecord,
         index,
-        progressByModule[moduleRecord.name]
+        moduleRecord.summary
       );
       card.onclick = () =>
         this.navigate("types", {
@@ -3483,26 +3807,31 @@ export const learnerFeatures = {
   },
 
   async renderTypes() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     const { currentLevel, currentArea, currentSub } = this.state;
     if (!currentLevel || !currentArea || !currentSub) {
-      this.navigate("subtopics", { level: currentLevel, area: currentArea });
+      await this.navigate(
+        currentLevel && currentArea ? "subtopics" : "home",
+        currentLevel && currentArea
+          ? { level: currentLevel, area: currentArea }
+          : {},
+        { replace: true }
+      );
       return;
     }
 
-    if (
-      !this.hasAreaModulesCached(currentLevel, currentArea) ||
-      !this.hasModuleQuizzesCached(currentLevel, currentArea, currentSub)
-    ) {
+    const cacheKey = this.getScopedRouteDataKey(
+      currentLevel,
+      currentArea,
+      currentSub
+    );
+    if (!this.state.routeData?.typesBySubtopic?.[cacheKey]) {
       this.showLoadingView();
     }
 
-    let moduleData;
+    let page;
     try {
-      await this.ensureAreaModulesLoaded(currentArea);
-      moduleData = await this.ensureModuleQuizzesLoaded(
-        currentArea,
-        currentSub
-      );
+      page = await this.loadBrowseTypes(currentLevel, currentArea, currentSub);
     } catch (error) {
       console.error("Quiz type summary load failed:", error);
       if (await this.handleAccessRestriction(error)) {
@@ -3511,34 +3840,13 @@ export const learnerFeatures = {
       this.showFatalLoadError(error?.message || "Could not load quiz types.");
       return;
     }
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
 
-    const formatCards = [{ type: "sba" }, { type: "tf" }];
-
-    const allQuizzes = formatCards.flatMap(({ type }) =>
-      Object.entries(moduleData?.[type] || {}).map(([title, quiz]) => ({
-        ...quiz,
-        title,
-        type,
-      }))
-    );
-
-    const totalQuestions = allQuizzes.reduce(
-      (sum, quiz) => sum + Number(quiz.count || 0),
-      0
-    );
-    const overallAssessmentProgress = this.buildModuleAssessmentSummary({
-      moduleData,
-      level: currentLevel,
-      area: currentArea,
-      sub: currentSub,
-    });
-    const overallCompletePercent = overallAssessmentProgress.totalCount
-      ? Math.round(
-          (overallAssessmentProgress.doneCount /
-            overallAssessmentProgress.totalCount) *
-            100
-        )
-      : 0;
+    const formatCards = page.types;
+    const totalQuestions = page.totalQuestions;
+    const overallCompletePercent = page.percent;
 
     document.getElementById("types-page-title").textContent = currentSub;
     if (this.dom.typesPageKicker) {
@@ -3559,32 +3867,22 @@ export const learnerFeatures = {
     }
     this.dom.typesGrid.innerHTML = "";
 
-    formatCards.forEach(({ type }) => {
-      const quizzes = Object.values(moduleData?.[type] || {});
-      const quizCount = quizzes.length;
-      const questionCount = quizzes.reduce(
-        (sum, quiz) => sum + Number(quiz.count || 0),
-        0
-      );
-      const completedCount = new Set(
-        quizzes
-          .filter((quiz) => this.getAttemptsForQuizId(quiz.id).length)
-          .map((quiz) => quiz.id)
-      ).size;
-      const isLocked = quizCount === 0;
-      const isComplete = !!quizCount && completedCount === quizCount;
-      const statusText = isLocked
-        ? "Unavailable"
-        : isComplete
-          ? "Complete"
-          : completedCount
-            ? "In Progress"
-            : "Not Started";
-      const displayTitle =
-        type === "sba" ? "Single Best Answer" : "True / False";
-      const visualMarkup =
-        type === "sba"
-          ? `
+    formatCards.forEach(
+      ({ type, quizCount, questionCount, completedCount }) => {
+        const isLocked = quizCount === 0;
+        const isComplete = !!quizCount && completedCount === quizCount;
+        const statusText = isLocked
+          ? "Unavailable"
+          : isComplete
+            ? "Complete"
+            : completedCount
+              ? "In Progress"
+              : "Not Started";
+        const displayTitle =
+          type === "sba" ? "Single Best Answer" : "True / False";
+        const visualMarkup =
+          type === "sba"
+            ? `
           <div class="selection-visual selection-visual-sba" aria-hidden="true">
             ${["A", "B", "C", "D", "E"]
               .map(
@@ -3595,7 +3893,7 @@ export const learnerFeatures = {
               .join("")}
           </div>
         `
-          : `
+            : `
           <div class="selection-visual selection-visual-tf" aria-hidden="true">
             <div class="selection-visual-choice is-active">
               <span>True</span>
@@ -3609,15 +3907,15 @@ export const learnerFeatures = {
             </div>
           </div>
         `;
-      const card = document.createElement(isLocked ? "article" : "button");
-      if (card instanceof HTMLButtonElement) {
-        card.type = "button";
-      }
-      card.className = `selection-card type-${type} ${isLocked ? "locked" : "available"} ${isComplete ? "is-complete" : completedCount ? "is-progress" : "is-fresh"}`;
-      if (!isLocked) {
-        card.setAttribute("aria-label", `Open ${displayTitle} assessments`);
-      }
-      card.innerHTML = `
+        const card = document.createElement(isLocked ? "article" : "button");
+        if (card instanceof HTMLButtonElement) {
+          card.type = "button";
+        }
+        card.className = `selection-card type-${type} ${isLocked ? "locked" : "available"} ${isComplete ? "is-complete" : completedCount ? "is-progress" : "is-fresh"}`;
+        if (!isLocked) {
+          card.setAttribute("aria-label", `Open ${displayTitle} assessments`);
+        }
+        card.innerHTML = `
         <div class="selection-card-copy">
           <div class="selection-card-head">
             <span class="selection-card-status ${isLocked ? "is-locked" : isComplete ? "is-complete" : completedCount ? "is-progress" : "is-fresh"}">${this.escapeHtml(statusText)}</span>
@@ -3642,46 +3940,59 @@ export const learnerFeatures = {
           </span>
         </div>
       `;
-      if (!isLocked) {
-        card.onclick = () =>
-          this.navigate("quizzes", {
-            level: currentLevel,
-            area: currentArea,
-            sub: currentSub,
-            type,
-          });
+        if (!isLocked) {
+          card.onclick = () =>
+            this.navigate("quizzes", {
+              level: currentLevel,
+              area: currentArea,
+              sub: currentSub,
+              type,
+            });
+        }
+        this.dom.typesGrid.appendChild(card);
       }
-      this.dom.typesGrid.appendChild(card);
-    });
+    );
 
     this.showOnly("types-view");
   },
 
   async renderQuizList() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     const { currentLevel, currentArea, currentSub, currentType } = this.state;
-    if (!currentLevel || !currentArea || !currentSub || !currentType) {
-      this.navigate("types", {
-        level: currentLevel,
-        area: currentArea,
-        sub: currentSub,
-      });
+    if (
+      !currentLevel ||
+      !currentArea ||
+      !currentSub ||
+      !["sba", "tf"].includes(currentType)
+    ) {
+      await this.navigate(
+        currentLevel && currentArea && currentSub ? "types" : "home",
+        currentLevel && currentArea && currentSub
+          ? { level: currentLevel, area: currentArea, sub: currentSub }
+          : {},
+        { replace: true }
+      );
       return;
     }
 
-    if (
-      !this.hasAreaModulesCached(currentLevel, currentArea) ||
-      !this.hasModuleQuizzesCached(currentLevel, currentArea, currentSub)
-    ) {
+    const cacheKey = this.getScopedRouteDataKey(
+      currentLevel,
+      currentArea,
+      currentSub,
+      currentType
+    );
+    if (!this.state.routeData?.quizzesByType?.[cacheKey]) {
       this.showLoadingView();
     }
 
-    let moduleData;
-    let modules;
+    let page;
     try {
-      [modules, moduleData] = await Promise.all([
-        this.ensureAreaModulesLoaded(currentArea),
-        this.ensureModuleQuizzesLoaded(currentArea, currentSub),
-      ]);
+      page = await this.loadBrowseQuizzes(
+        currentLevel,
+        currentArea,
+        currentSub,
+        currentType
+      );
     } catch (error) {
       console.error("Quiz list load failed:", error);
       if (await this.handleAccessRestriction(error)) {
@@ -3690,41 +4001,16 @@ export const learnerFeatures = {
       this.showFatalLoadError(error?.message || "Could not load quizzes.");
       return;
     }
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
 
     const meta = this.getTypeMeta(currentType);
     const typePresentation = this.getTypePresentation(currentType);
-    const quizzes = Object.entries(moduleData?.[currentType] || {})
-      .sort(([titleA], [titleB]) => this.compareDisplayOrder(titleA, titleB))
-      .map(([title, quizMeta]) => ({
-        ...quizMeta,
-        title,
-      }));
-
-    const topicIndex =
-      Math.max(
-        0,
-        (modules || []).findIndex(
-          (moduleRecord) => moduleRecord.name === currentSub
-        )
-      ) + 1;
-
-    const completedQuizzes = quizzes
-      .map((quizMeta) => ({
-        quizMeta,
-        attemptStats: this.getAttemptStatsForQuizId(quizMeta.id),
-      }))
-      .filter((entry) => !!entry.attemptStats);
-
-    const averagePercentage = completedQuizzes.length
-      ? Math.round(
-          completedQuizzes.reduce((sum, entry) => {
-            const preferredAttempt = this.getPreferredAttemptForDisplay(
-              entry.attemptStats
-            );
-            return sum + Number(preferredAttempt?.percentage || 0);
-          }, 0) / completedQuizzes.length
-        )
-      : null;
+    const quizzes = page.quizzes;
+    const topicIndex = page.topicIndex;
+    const completedCount = page.summary.completedCount;
+    const averagePercentage = page.summary.averageBestPercentage;
 
     if (this.dom.quizListView) {
       this.dom.quizListView.classList.remove("type-sba", "type-tf");
@@ -3741,12 +4027,10 @@ export const learnerFeatures = {
       this.dom.quizListAssessmentCount.textContent = String(quizzes.length);
     }
     if (this.dom.quizListCompletedCount) {
-      this.dom.quizListCompletedCount.textContent = String(
-        completedQuizzes.length
-      );
+      this.dom.quizListCompletedCount.textContent = String(completedCount);
       this.dom.quizListCompletedCount.classList.toggle(
         "good",
-        completedQuizzes.length > 0
+        completedCount > 0
       );
     }
     if (this.dom.quizListAverageScore) {
@@ -3787,12 +4071,10 @@ export const learnerFeatures = {
     }
 
     quizzes.forEach((quizMeta, index) => {
-      const attemptStats = this.getAttemptStatsForQuizId(quizMeta.id);
-      const featuredAttempt = this.getPreferredAttemptForDisplay(attemptStats);
-      const isDone = !!attemptStats;
-      const totalAttempts = Number(attemptStats?.totalAttempts || 0);
+      const isDone = quizMeta.totalAttempts > 0;
+      const totalAttempts = quizMeta.totalAttempts;
       const questionCount = Number(quizMeta.count || 0);
-      const percentage = Number(featuredAttempt?.percentage || 0);
+      const percentage = Number(quizMeta.bestPercentage || 0);
       const statusLabel = isDone ? "Done" : "Ready";
       const detailLabel = isDone
         ? `${totalAttempts} attempt${totalAttempts === 1 ? "" : "s"}`
@@ -3850,12 +4132,37 @@ export const learnerFeatures = {
   },
 
   async renderQuiz() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     this.showLoadingView();
     this.stopQuizCountdown();
-    const [baseQuestions, savedDraft] = await Promise.all([
-      this.fetchQuestionsForCurrentQuiz(),
-      this.loadSavedQuizDraft(),
-    ]);
+    let session;
+    try {
+      const prefetchedSession = this.consumeInitialRoutePrefetch("quiz");
+      session = await (prefetchedSession ||
+        this.loadQuizSessionPage(this.state.currentQuizId));
+    } catch (error) {
+      console.error("Quiz session load failed:", error);
+      if (await this.handleAccessRestriction(error)) return;
+      this.showFatalLoadError(error?.message || "Could not load this quiz.");
+      return;
+    }
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
+    if (!session) {
+      await this.navigate("home", {}, { replace: true });
+      return;
+    }
+
+    const { descriptor } = session;
+    this.state.currentQuizId = descriptor.quizId;
+    this.state.currentLevel = descriptor.level;
+    this.state.currentArea = descriptor.area;
+    this.state.currentSub = descriptor.sub;
+    this.state.currentType = descriptor.type;
+    this.state.currentQuizTitle = descriptor.title;
+    const baseQuestions = session.questions;
+    const savedDraft = session.draft;
     const questions = this.getQuizSessionQuestions(baseQuestions, savedDraft);
     const restoreDraft = savedDraft;
 
@@ -3879,31 +4186,7 @@ export const learnerFeatures = {
     const markingText = this.state.negativeMarking
       ? "Negative marking"
       : "Standard marking";
-    const currentModule =
-      this.state.quizzesByModule[
-        this.getModuleCacheKey(
-          this.state.currentLevel,
-          this.state.currentArea,
-          this.state.currentSub
-        )
-      ] || {};
-    const orderedQuizzes = Object.entries(
-      currentModule?.[this.state.currentType] || {}
-    )
-      .sort(([titleA], [titleB]) => this.compareDisplayOrder(titleA, titleB))
-      .map(([title, quiz]) => ({
-        ...quiz,
-        title,
-      }));
-    const quizIndex =
-      Math.max(
-        0,
-        orderedQuizzes.findIndex(
-          (quiz) =>
-            quiz.id === this.state.currentQuizId ||
-            quiz.title === this.state.currentQuizTitle
-        )
-      ) + 1;
+    const quizIndex = this.getCurrentQuizIndex();
     const quizView = document.getElementById("quiz-view");
     if (quizView) {
       quizView.dataset.type = this.state.currentType;
@@ -4040,7 +4323,10 @@ export const learnerFeatures = {
     }
     this.updateQuizProgressUI();
     this.startQuizCountdown(restoreDraft);
-    this.persistCurrentQuizDraft();
+    this.writeStoredJson(
+      this.getQuizDraftStorageKey(),
+      this.serializeQuizDraft()
+    );
   },
 
   renderResults() {
@@ -4200,7 +4486,9 @@ export const learnerFeatures = {
             String(value).trim().toLowerCase()
           )
         );
-    const answerGridTypeClass = isTfResult ? "tf-answer-grid" : "sba-answer-grid";
+    const answerGridTypeClass = isTfResult
+      ? "tf-answer-grid"
+      : "sba-answer-grid";
     const verdictClass =
       item.statusClass === "correct"
         ? "correct"
@@ -4222,9 +4510,8 @@ export const learnerFeatures = {
         : String(item.statusText || "").includes("-1")
           ? "INCORRECT (-1)"
           : "INCORRECT (0)";
-    const answerGrid =
-      isCorrect
-        ? `
+    const answerGrid = isCorrect
+      ? `
           <div class="answer-grid single ${answerGridTypeClass}">
             <div class="answer-chip your">
               <span class="chip-label">YOUR ANSWER</span>
@@ -4232,7 +4519,7 @@ export const learnerFeatures = {
             </div>
           </div>
         `
-        : `
+      : `
           <div class="answer-grid ${answerGridTypeClass}">
             <div class="answer-chip ${item.statusClass === "notsure" ? "yours-unsure" : "yours-wrong"}">
               <span class="chip-label">YOUR ANSWER</span>
@@ -4300,6 +4587,7 @@ export const learnerFeatures = {
   },
 
   async renderAccountView() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     if (
       !this.dom.accountPageTitle ||
       !this.dom.accountPageSubtitle ||
@@ -4312,8 +4600,21 @@ export const learnerFeatures = {
       return;
     }
 
-    const stats =
-      this.state.userStats || this.buildUserStats(this.state.attempts || []);
+    const accountCache = this.state.routeData?.accountByKey?.["first-page"];
+    if (!accountCache) this.showLoadingView();
+
+    let stats;
+    try {
+      stats = await this.loadAccountPage();
+    } catch (error) {
+      console.error("Account page load failed:", error);
+      if (await this.handleAccessRestriction(error)) return;
+      this.showFatalLoadError(error?.message || "Could not load your account.");
+      return;
+    }
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
 
     this.showOnly("account-view");
     const displayName = this.getDisplayNameForUser(this.state.currentUser);
@@ -4430,15 +4731,17 @@ export const learnerFeatures = {
   async renderSettingsView() {
     this.showLoadingView();
 
-    let access;
-    try {
-      access = await this.loadAccessStatus();
-    } catch (error) {
-      console.error("Settings access load failed:", error);
-      if (await this.handleAccessRestriction(error)) {
-        return;
+    let access = this.state.accessStatus;
+    if (!access) {
+      try {
+        access = await this.loadAccessStatus();
+      } catch (error) {
+        console.error("Settings access load failed:", error);
+        if (await this.handleAccessRestriction(error)) {
+          return;
+        }
+        access = this.state.accessStatus || {};
       }
-      access = this.state.accessStatus || {};
     }
 
     this.showOnly("settings-view");
@@ -4651,7 +4954,11 @@ export const learnerFeatures = {
 
       resultsSnapshot.attemptCount = Math.max(
         1,
-        Number(this.getAttemptStatsForQuizId(quizMeta.id)?.totalAttempts || 0)
+        Number(
+          saveResult.attemptCount ||
+            this.getAttemptStatsForQuizId(quizMeta.id)?.totalAttempts ||
+            0
+        )
       );
       await this.clearQuizDraft();
       this.saveQuizResultSnapshot(resultsSnapshot);

@@ -26,21 +26,11 @@ export async function fetchPastPaperExams(
   });
 }
 
-export async function fetchPastPaperUnits(supabase, setId) {
-  return supabase.rpc("app_past_paper_units", {
-    p_set_id: setId,
-  });
-}
-
 export async function submitPastPaperAttempt(
   supabase,
   setId,
   answers,
-  {
-    durationMinutes = null,
-    negativeMarking = false,
-    timedOut = false,
-  } = {}
+  { durationMinutes = null, negativeMarking = false, timedOut = false } = {}
 ) {
   return supabase.rpc("app_submit_past_paper_attempt", {
     p_set_id: setId,
@@ -49,10 +39,6 @@ export async function submitPastPaperAttempt(
     p_negative_marking: !!negativeMarking,
     p_timed_out: !!timedOut,
   });
-}
-
-export async function fetchPastPaperAttempts(supabase) {
-  return supabase.rpc("app_past_paper_attempts_enriched");
 }
 
 export async function fetchPastPaperAttemptReview(supabase, attemptId) {

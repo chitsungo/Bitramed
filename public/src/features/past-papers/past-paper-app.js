@@ -2,7 +2,6 @@ import {
   fetchPastPaperAttemptReview,
   fetchPastPaperExams,
   fetchPastPaperTopics,
-  fetchPastPaperUnits,
   fetchPastPaperYears,
   submitPastPaperAttempt,
 } from "../../services/past-paper-service.js";
@@ -232,56 +231,39 @@ export const pastPaperApp = {
     return exams;
   },
 
-  async ensurePastPaperUnitsLoaded(setId, force = false) {
-    const pastPapers = this.getPastPaperState();
-    if (!force && pastPapers.unitsBySetId[setId])
-      return pastPapers.unitsBySetId[setId];
-
-    const { data, error } = await this.withTimeout(
-      fetchPastPaperUnits(this.getSupabase(), setId),
-      12000,
-      "Loading past paper exam"
-    );
-    if (error) throw error;
-
-    const units = this.normalizePastPaperUnitRows(data || []);
-    pastPapers.unitsBySetId[setId] = units;
-    this.scheduleAppDataCacheWrite?.();
-    return units;
-  },
-
-  findPastPaperExam(setId) {
-    const pastPapers = this.getPastPaperState();
-    return (
-      Object.values(pastPapers.examsByTopic)
-        .flat()
-        .find((exam) => exam.setId === setId) ||
-      pastPapers.activeExam ||
-      null
-    );
-  },
-
   async openPastPaperSettings(exam, yearLabel, topicLabel) {
     if (!exam?.setId) return;
 
-    const savedProgress = await this.loadAccountAssessmentProgress(
+    const rememberedSettings = this.getRememberedAssessmentSettings(
       "past_paper",
       exam.setId
     );
+    const savedProgress = rememberedSettings
+      ? null
+      : await this.loadAccountAssessmentProgress("past_paper", exam.setId);
     const settings = await quizSettingsDialog({
       title: exam.title || "Start exam",
       submitLabel: "Start exam",
       cancelLabel: "Cancel",
       min: 5,
       max: 30,
-      initial: savedProgress?.durationMinutes || null,
-      negativeMarking: !!savedProgress?.negativeMarking,
+      initial:
+        rememberedSettings?.durationMinutes ||
+        savedProgress?.durationMinutes ||
+        null,
+      negativeMarking: !!(
+        rememberedSettings?.negativeMarking ?? savedProgress?.negativeMarking
+      ),
     });
     if (!settings) return;
 
     const durationMinutes = this.normalizeQuizDurationMinutes(
       settings.durationMinutes
     );
+    this.rememberAssessmentSettings("past_paper", exam.setId, {
+      durationMinutes,
+      negativeMarking: !!settings.negativeMarking,
+    });
     await this.navigate("past-paper-session", {
       setId: exam.setId,
       year: yearLabel,
@@ -327,23 +309,38 @@ export const pastPaperApp = {
   },
 
   async renderYearHub() {
+    const routeUrl = `${window.location.pathname}${window.location.search}`;
     const yearLabel = normalizeText(this.state.currentLevel);
     if (!yearLabel) {
       await this.navigate("home", {}, { replace: true });
       return;
     }
 
-    this.showLoadingView();
-    await this.loadPastPaperYears();
-    const normalAvailable = !!this.state.levelIdByName[yearLabel];
-    const pastPaperSummary = this.getPastPaperYearSummary(yearLabel);
+    let normalSummary =
+      this.state.homeDashboard?.levelProgressByName?.[yearLabel] || null;
+    let pastPaperSummary = this.getPastPaperYearSummary(yearLabel);
+    if (!this.homeBootstrapLoadedThisPage) {
+      this.showLoadingView();
+      try {
+        const overview = await this.loadYearOverview(yearLabel);
+        normalSummary = overview.normal;
+        pastPaperSummary = overview.pastPaper;
+      } catch (error) {
+        console.error("Year overview load failed:", error);
+        if (await this.handleAccessRestriction(error)) return;
+        this.showFatalLoadError(error?.message || "Could not load this year.");
+        return;
+      }
+    }
+    if (`${window.location.pathname}${window.location.search}` !== routeUrl) {
+      return;
+    }
+
+    const normalAvailable = !!normalSummary;
     if (!normalAvailable && !pastPaperSummary) {
       await this.navigate("home", {}, { replace: true });
       return;
     }
-    const normalSummary = normalAvailable
-      ? await this.getLevelProgressSummary(yearLabel)
-      : null;
     const normalProgressPercent = Number(normalSummary?.percent || 0);
     const pastPaperProgressPercent =
       this.getPastPaperCompletionPercent(pastPaperSummary);
@@ -357,7 +354,7 @@ export const pastPaperApp = {
       options.push({
         badge: "N",
         title: "Normal Study",
-        metaLabel: `${(this.state.areasByLevel[yearLabel] || []).length} course${(this.state.areasByLevel[yearLabel] || []).length === 1 ? "" : "s"}`,
+        metaLabel: `${Number(normalSummary?.courseCount || 0)} course${Number(normalSummary?.courseCount || 0) === 1 ? "" : "s"}`,
         metricValue: "",
         metricLabel: "",
         statusLabel: "Courses",
@@ -415,8 +412,10 @@ export const pastPaperApp = {
     this.showLoadingView();
     let topics;
     try {
-      await this.loadPastPaperYears();
-      topics = await this.ensurePastPaperTopicsLoaded(yearLabel);
+      const prefetchedTopics =
+        this.consumeInitialRoutePrefetch("past-paper-topics");
+      topics = await (prefetchedTopics ||
+        this.ensurePastPaperTopicsLoaded(yearLabel));
     } catch (error) {
       console.error("Past paper topics load failed:", error);
       if (await this.handleAccessRestriction(error)) return;
@@ -485,7 +484,10 @@ export const pastPaperApp = {
     this.showLoadingView();
     let exams;
     try {
-      exams = await this.ensurePastPaperExamsLoaded(yearLabel, topicLabel);
+      const prefetchedExams =
+        this.consumeInitialRoutePrefetch("past-paper-exams");
+      exams = await (prefetchedExams ||
+        this.ensurePastPaperExamsLoaded(yearLabel, topicLabel));
     } catch (error) {
       console.error("Past paper exams load failed:", error);
       if (await this.handleAccessRestriction(error)) return;
@@ -612,36 +614,87 @@ export const pastPaperApp = {
     );
   },
 
-  async loadPastPaperDraft(setId = this.getPastPaperState().currentSetId) {
-    const storageKey = this.getPastPaperDraftStorageKey(setId);
-    const localDraft = this.readStoredJson(storageKey);
-    const accountDraft = await this.loadAccountAssessmentProgress(
+  async loadPastPaperSessionPage(
+    setId = this.getPastPaperState().currentSetId
+  ) {
+    const normalizedSetId = normalizeText(setId);
+    if (!normalizedSetId) return null;
+    const pastPapers = this.getPastPaperState();
+    this.rememberAssessmentSettings("past_paper", normalizedSetId, {
+      durationMinutes: pastPapers.durationMinutes,
+      negativeMarking: pastPapers.negativeMarking,
+    });
+    const progressKey = this.buildAssessmentProgressKey({
+      mode: "exam",
+      durationMinutes: pastPapers.durationMinutes,
+      negativeMarking: pastPapers.negativeMarking,
+    });
+    const cachedProgress = this.getCachedAssessmentProgress(
       "past_paper",
-      setId,
-      this.buildAssessmentProgressKey({
-        mode: "exam",
-        durationMinutes: this.getPastPaperState().durationMinutes,
-        negativeMarking: this.getPastPaperState().negativeMarking,
-      })
+      normalizedSetId,
+      progressKey
     );
+    const { data, error } = await this.withTimeout(
+      this.getSupabase().rpc("app_past_paper_session", {
+        p_set_id: normalizedSetId,
+        p_progress_key: cachedProgress.hit ? null : progressKey,
+      }),
+      12000,
+      "Loading past paper exam"
+    );
+    if (error) throw error;
+    if (
+      !data ||
+      Array.isArray(data) ||
+      typeof data !== "object" ||
+      Number(data.schemaVersion) !== 1 ||
+      !Array.isArray(data.units)
+    ) {
+      throw new Error("Past paper session returned an invalid response.");
+    }
+
+    const paperRow = data.paper;
+    if (!paperRow || typeof paperRow !== "object") return null;
+    const exam = {
+      setId: paperRow.setId || paperRow.set_id || normalizedSetId,
+      title: normalizeText(paperRow.title) || "Past Paper",
+      yearLabel: normalizeText(paperRow.yearLabel || paperRow.year_label),
+      topicLabel: normalizeText(paperRow.topicLabel || paperRow.topic_label),
+      paperGroupLabel: normalizeText(
+        paperRow.paperGroupLabel || paperRow.paper_group_label
+      ),
+    };
+    const units = this.normalizePastPaperUnitRows(data.units);
+
+    let accountDraft = cachedProgress.value;
+    if (!cachedProgress.hit) {
+      accountDraft = this.normalizeAccountAssessmentProgress(data.progress);
+      this.cacheAssessmentProgress(
+        "past_paper",
+        normalizedSetId,
+        progressKey,
+        accountDraft
+      );
+    }
+    const storageKey = this.getPastPaperDraftStorageKey(normalizedSetId);
+    const localDraft = this.readStoredJson(storageKey);
     const matchingLocal = this.isPastPaperDraftForCurrentSettings(localDraft)
       ? localDraft
       : null;
-    const matchingAccount =
-      this.isPastPaperDraftForCurrentSettings(accountDraft)
-        ? accountDraft
-        : null;
+    const matchingAccount = this.isPastPaperDraftForCurrentSettings(
+      accountDraft
+    )
+      ? accountDraft
+      : null;
     const draft = this.chooseNewestAssessmentDraft(
       matchingLocal,
       matchingAccount
     );
-
     if (draft === matchingAccount && draft) {
       this.writeStoredJson(storageKey, draft);
-    } else if (draft === matchingLocal && draft) {
-      void this.saveAccountAssessmentProgress("past_paper", setId, draft);
     }
-    return draft;
+
+    return { exam, units, draft };
   },
 
   serializePastPaperDraft() {
@@ -706,15 +759,11 @@ export const pastPaperApp = {
     const normalizedSetId = normalizeText(setId);
     if (!normalizedSetId) return Promise.resolve();
     this.removeStoredJson(this.getPastPaperDraftStorageKey(normalizedSetId));
-    return this.clearAccountAssessmentProgress(
-      "past_paper",
-      normalizedSetId,
-      {
-        mode: "exam",
-        durationMinutes: this.getPastPaperState().durationMinutes,
-        negativeMarking: this.getPastPaperState().negativeMarking,
-      }
-    );
+    return this.clearAccountAssessmentProgress("past_paper", normalizedSetId, {
+      mode: "exam",
+      durationMinutes: this.getPastPaperState().durationMinutes,
+      negativeMarking: this.getPastPaperState().negativeMarking,
+    });
   },
 
   stopPastPaperCountdown() {
@@ -803,13 +852,12 @@ export const pastPaperApp = {
     }
 
     this.showLoadingView();
-    let units;
-    let savedDraft;
+    let session;
     try {
-      [units, savedDraft] = await Promise.all([
-        this.ensurePastPaperUnitsLoaded(setId),
-        this.loadPastPaperDraft(setId),
-      ]);
+      const prefetchedSession =
+        this.consumeInitialRoutePrefetch("past-paper-session");
+      session = await (prefetchedSession ||
+        this.loadPastPaperSessionPage(setId));
     } catch (error) {
       console.error("Past paper exam load failed:", error);
       if (await this.handleAccessRestriction(error)) return;
@@ -821,14 +869,17 @@ export const pastPaperApp = {
     if (`${window.location.pathname}${window.location.search}` !== routeUrl)
       return;
 
-    const exam = this.findPastPaperExam(setId) || {
-      title: "Past Paper",
-      yearLabel: pastPapers.currentYear,
-      topicLabel: pastPapers.currentTopic,
-      totalMarks: units.reduce((sum, unit) => sum + unit.branches.length, 0),
-    };
+    if (!session) {
+      await this.navigate("home", {}, { replace: true });
+      return;
+    }
+
+    const { exam, units, draft: savedDraft } = session;
+    pastPapers.currentYear = exam.yearLabel || pastPapers.currentYear;
+    pastPapers.currentTopic = exam.topicLabel || pastPapers.currentTopic;
     pastPapers.activeExam = exam;
     pastPapers.activeUnits = units;
+    pastPapers.unitsBySetId[setId] = units;
 
     const totalMarks = units.reduce(
       (sum, unit) => sum + unit.branches.length,
@@ -891,7 +942,10 @@ export const pastPaperApp = {
     }
     this.updatePastPaperProgressUI();
     this.startPastPaperCountdown(savedDraft);
-    this.persistCurrentPastPaperDraft();
+    this.writeStoredJson(
+      this.getPastPaperDraftStorageKey(setId),
+      this.serializePastPaperDraft()
+    );
   },
 
   getPastPaperAnswerMap() {
@@ -983,8 +1037,8 @@ export const pastPaperApp = {
       const attemptId = data?.attemptId || data?.attempt_id;
       await this.clearPastPaperDraft(setId);
       this.getPastPaperState().reviewsByAttemptId = {};
-      await this.loadPastPaperYears(true);
-      await this.loadPersonalizationData?.();
+      this.invalidatePastPaperDerivedCaches?.();
+      this.invalidateHomeDashboardData?.();
       await this.navigate("past-paper-review", {
         attemptId,
         duration: pastPapers.durationMinutes || "",
@@ -1001,8 +1055,28 @@ export const pastPaperApp = {
     }
   },
 
+  async loadPastPaperAttemptReview(attemptId) {
+    const normalizedAttemptId = normalizeText(attemptId);
+    if (!normalizedAttemptId) return null;
+    const pastPapers = this.getPastPaperState();
+    let review = pastPapers.reviewsByAttemptId[normalizedAttemptId] || null;
+    if (!review) {
+      const { data, error } = await this.withTimeout(
+        fetchPastPaperAttemptReview(this.getSupabase(), normalizedAttemptId),
+        12000,
+        "Loading past paper review"
+      );
+      if (error) throw error;
+      review = data || {};
+      pastPapers.reviewsByAttemptId[normalizedAttemptId] = review;
+    }
+
+    return review;
+  },
+
   async renderPastPaperReview() {
-    const attemptId = normalizeText(this.getPastPaperState().currentAttemptId);
+    const pastPapers = this.getPastPaperState();
+    const attemptId = normalizeText(pastPapers.currentAttemptId);
     if (!attemptId) {
       await this.navigate("home", {}, { replace: true });
       return;
@@ -1011,13 +1085,10 @@ export const pastPaperApp = {
     this.showLoadingView();
     let review;
     try {
-      const { data, error } = await this.withTimeout(
-        fetchPastPaperAttemptReview(this.getSupabase(), attemptId),
-        12000,
-        "Loading past paper review"
-      );
-      if (error) throw error;
-      review = data || {};
+      const prefetchedReview =
+        this.consumeInitialRoutePrefetch("past-paper-review");
+      review = await (prefetchedReview ||
+        this.loadPastPaperAttemptReview(attemptId));
     } catch (error) {
       console.error("Past paper review load failed:", error);
       if (await this.handleAccessRestriction(error)) return;
@@ -1029,21 +1100,24 @@ export const pastPaperApp = {
 
     const attempt = review.attempt || {};
     const units = Array.isArray(review.units) ? review.units : [];
-    const pastPapers = this.getPastPaperState();
     const setId = normalizeText(attempt.setId || attempt.set_id || "");
     if (setId) {
       pastPapers.currentSetId = setId;
-      try {
-        await this.loadPastPaperYears();
-        const exam = this.findPastPaperExam(setId);
-        if (exam) {
-          pastPapers.currentYear = exam.yearLabel || pastPapers.currentYear;
-          pastPapers.currentTopic = exam.topicLabel || pastPapers.currentTopic;
-          pastPapers.activeExam = exam;
-        }
-      } catch (error) {
-        console.warn("Past paper catalog lookup failed during review:", error);
-      }
+      pastPapers.currentYear =
+        normalizeText(attempt.yearLabel || attempt.year_label) ||
+        pastPapers.currentYear;
+      pastPapers.currentTopic =
+        normalizeText(attempt.topicLabel || attempt.topic_label) ||
+        pastPapers.currentTopic;
+      pastPapers.activeExam = {
+        setId,
+        title:
+          normalizeText(
+            attempt.title || attempt.quizTitle || attempt.quiz_title
+          ) || "Past Paper",
+        yearLabel: pastPapers.currentYear,
+        topicLabel: pastPapers.currentTopic,
+      };
     }
     this.showOnly("past-paper-review-view");
     document.getElementById("past-paper-review-title").textContent =
@@ -1067,9 +1141,7 @@ export const pastPaperApp = {
     pastPapers.negativeMarking = negativeMarking;
     pastPapers.durationMinutes = durationMinutes || null;
     const score =
-      !hasPersistedSettings && negativeMarking
-        ? correct - wrong
-        : storedScore;
+      !hasPersistedSettings && negativeMarking ? correct - wrong : storedScore;
     document.getElementById("past-paper-review-score").textContent =
       `${score}/${totalMarks}`;
     const percentage =
