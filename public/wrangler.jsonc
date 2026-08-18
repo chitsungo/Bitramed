@@ -1,7 +1,11 @@
 {
   "name": "bitramed",
   "compatibility_date": "2026-07-22",
+  "build": {
+    "command": "npm run build",
+    "cwd": "..",
+  },
   "assets": {
-    "directory": "."
-  }
+    "directory": ".",
+  },
 }

@@ -43,3 +43,15 @@ npm run build
 - `supabase/migrations` — versioned RPC permission and ownership hardening.
 
 The browser gate is a UX boundary only. Database functions must retain their internal owner check and must not grant execution to `anon` or `public`; the hardening migration enforces both.
+
+## Cloudflare deployment
+
+Cloudflare Workers Builds should track the `main` branch and use this deploy command:
+
+```bash
+npx wrangler deploy
+```
+
+The checked-in Wrangler configuration runs `npm run build` before every deployment, then uploads `public` as the Worker asset directory. The root `wrangler.jsonc` is preferred. The compatibility configuration in `public/wrangler.jsonc` performs the same root build for existing Cloudflare projects whose root directory is still set to `public`.
+
+Generated Next.js files under `apps/admin/.next`, `apps/admin/out` and `public/admin` are intentionally ignored. They are recreated during deployment and must not be committed.
