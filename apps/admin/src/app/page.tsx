@@ -192,7 +192,7 @@ export default function OverviewPage() {
                 {derived.activity.slice(0, 6).map((item) => (
                   <div key={item.id} className="flex gap-3">
                     <span
-                      className={`mt-1 size-2 shrink-0 rounded-full ${item.percentage >= 70 ? "bg-emerald-500" : item.percentage >= 50 ? "bg-amber-500" : "bg-rose-500"}`}
+                      className={`mt-1 size-2 shrink-0 rounded-full ${item.percentage >= 70 ? "bg-success" : item.percentage >= 50 ? "bg-warning" : "bg-destructive"}`}
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
