@@ -6,6 +6,7 @@ apps/admin/out/
 apps/admin/tsconfig.tsbuildinfo
 apps/admin/.env.local
 public/admin/
+public/JAK2V617F/
 supabase/.temp/
 .npm-cache-admin/
 .env

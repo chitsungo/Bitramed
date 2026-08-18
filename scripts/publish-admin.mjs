@@ -7,15 +7,20 @@ const projectRoot = path.resolve(
   ".."
 );
 const source = path.resolve(projectRoot, "apps", "admin", "out");
-const target = path.resolve(projectRoot, "public", "admin");
-const expectedTarget = path.join(projectRoot, "public", "admin");
+const publicRoot = path.resolve(projectRoot, "public");
+const target = path.resolve(publicRoot, "JAK2V617F");
+const legacyTarget = path.resolve(publicRoot, "admin");
+const expectedTarget = path.join(publicRoot, "JAK2V617F");
+const expectedLegacyTarget = path.join(publicRoot, "admin");
 
 if (
   target !== expectedTarget ||
-  !target.startsWith(path.join(projectRoot, "public") + path.sep)
+  legacyTarget !== expectedLegacyTarget ||
+  !target.startsWith(publicRoot + path.sep) ||
+  !legacyTarget.startsWith(publicRoot + path.sep)
 ) {
   throw new Error(
-    `Refusing to publish outside the expected admin target: ${target}`
+    `Refusing to publish outside the expected targets: ${target}, ${legacyTarget}`
   );
 }
 
@@ -24,8 +29,9 @@ if (!sourceStats.isDirectory()) {
   throw new Error(`Admin export is missing: ${source}`);
 }
 
+await rm(legacyTarget, { recursive: true, force: true });
 await rm(target, { recursive: true, force: true });
 await mkdir(target, { recursive: true });
 await cp(source, target, { recursive: true });
 
-console.log("Published the Next.js admin export to public/admin.");
+console.log("Published the Next.js admin export to public/JAK2V617F.");

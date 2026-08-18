@@ -1,6 +1,6 @@
 # Bitramed
 
-Bitramed combines the existing learner-facing static application with a new, separately built Next.js admin control room. The admin source lives in `apps/admin` and is exported into `public/admin` during the root build so the existing Cloudflare static-asset deployment continues to serve one site.
+Bitramed combines the existing learner-facing static application with a separately built Next.js admin control room. The admin source lives in `apps/admin` and is exported into `public/JAK2V617F` during the root build so the existing Cloudflare static-asset deployment continues to serve one site.
 
 ## Admin development
 
@@ -20,7 +20,7 @@ Requirements: Node.js 20 or newer and npm.
    npm run dev:admin
    ```
 
-4. Open `http://localhost:3000/admin/`. Unauthenticated users are returned to the learner sign-in flow; only owner or allowlisted accounts pass the `is_current_user_admin` gate.
+4. Open `http://localhost:3000/JAK2V617F/`. Unauthenticated users are returned to the learner sign-in flow; only owner or allowlisted accounts pass the `is_current_user_admin` gate.
 
 Useful checks:
 
@@ -31,7 +31,7 @@ npm run test:admin
 npm run build
 ```
 
-`npm run build` first builds the legacy learner assets, then statically exports Next.js with the `/admin` base path and publishes the output to `public/admin`. Do not edit generated files in `public/admin`; change `apps/admin` instead.
+`npm run build` first builds the legacy learner assets, then statically exports Next.js with the `/JAK2V617F` base path and publishes the output to `public/JAK2V617F`. It also removes any generated `public/admin` output so `/admin` remains unavailable. Do not edit generated files in `public/JAK2V617F`; change `apps/admin` instead.
 
 ## Admin structure
 
@@ -54,4 +54,4 @@ npx wrangler deploy
 
 The checked-in Wrangler configuration runs `npm run build` before every deployment, then uploads `public` as the Worker asset directory. The root `wrangler.jsonc` is preferred. The compatibility configuration in `public/wrangler.jsonc` performs the same root build for existing Cloudflare projects whose root directory is still set to `public`.
 
-Generated Next.js files under `apps/admin/.next`, `apps/admin/out` and `public/admin` are intentionally ignored. They are recreated during deployment and must not be committed.
+Generated Next.js files under `apps/admin/.next`, `apps/admin/out`, `public/admin` and `public/JAK2V617F` are intentionally ignored. They are recreated or removed during deployment and must not be committed.

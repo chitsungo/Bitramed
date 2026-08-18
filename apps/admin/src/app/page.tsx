@@ -76,21 +76,21 @@ export default function OverviewPage() {
         title="Overview"
         description="A focused view of learner access, performance and recent engagement."
         actions={
-    <div className="grid w-full grid-cols-2 rounded-lg border p-1 text-xs sm:w-auto">
-      <button
-        type="button"
-        aria-pressed={activeOnly}
-        className={`min-w-20 rounded-md px-3 py-1.5 text-center transition-colors ${activeOnly ? "bg-muted font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-        onClick={() => setActiveOnly(true)}
-      >
-        Active
-      </button>
-      <button
-        type="button"
-        aria-pressed={!activeOnly}
-        className={`min-w-20 rounded-md px-3 py-1.5 text-center transition-colors ${!activeOnly ? "bg-muted font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-        onClick={() => setActiveOnly(false)}
-      >
+          <div className="grid w-full grid-cols-2 rounded-lg border p-1 text-xs sm:w-auto">
+            <button
+              type="button"
+              aria-pressed={activeOnly}
+              className={`min-w-20 rounded-md px-3 py-1.5 text-center transition-colors ${activeOnly ? "bg-muted font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setActiveOnly(true)}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              aria-pressed={!activeOnly}
+              className={`min-w-20 rounded-md px-3 py-1.5 text-center transition-colors ${!activeOnly ? "bg-muted font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setActiveOnly(false)}
+            >
               All
             </button>
           </div>
@@ -156,7 +156,7 @@ export default function OverviewPage() {
                       variant="ghost"
                       onClick={() =>
                         window.location.assign(
-                          `/admin/access/?q=${encodeURIComponent(item.email || item.display_name || "")}`
+                          `/JAK2V617F/access/?q=${encodeURIComponent(item.email || item.display_name || "")}`
                         )
                       }
                     >

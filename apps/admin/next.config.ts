@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  basePath: "/admin",
+  basePath: "/JAK2V617F",
   output: "export",
   outputFileTracingRoot: process.cwd(),
   trailingSlash: true,
