@@ -1,119 +1,175 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
+  Bookmark,
+  BookmarkCheck,
   Check,
+  CheckCircle2,
   Clock3,
   Flag,
   LoaderCircle,
+  Save,
+  WifiOff,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  scoreAssessment,
-  type AssessmentResult,
-  type Question,
-} from "@/lib/assessment";
-import {
   deleteAssessmentDraft,
+  readLocalDraft,
   saveAssessmentDraft,
 } from "@/lib/assessment-progress";
 import {
   asRecord,
-  asRows,
+  checkQuizAnswer,
   fetchQuizSession,
-  text,
-  type UnknownRow,
+  submitQuiz,
 } from "@/lib/learner-api";
-import { getSupabase } from "@/lib/supabase";
+import { learnerKeys } from "@/lib/learner-query-keys";
+import {
+  parseBooleanParam,
+  parseDurationParam,
+  parseQuizMode,
+} from "@/lib/learner-query";
+import type { AnswerFeedback, QuizSession } from "@/types/learner";
 import { useLearnerSession } from "@/components/learner/learner-gate";
-import { PageError } from "@/components/learner/page-primitives";
+import { Empty, PageError } from "@/components/learner/page-primitives";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
-type ResultSnapshot = AssessmentResult & {
-  quizId: string;
-  title: string;
-  mode: "study" | "exam";
-  negativeMarking: boolean;
-  completedAt: string;
-};
-
-function normalizeQuestions(value: unknown, type: "sba" | "tf"): Question[] {
-  return asRows(value)
-    .map((row, index) => ({
-      key: text(row, "id", "question_id", "key") || String(index + 1),
-      text: text(row, "question_text", "questionText", "prompt"),
-      answer: text(row, "correct_answer", "correctAnswer", "answer"),
-      explanation: text(row, "explanation"),
-      imageUrl: text(row, "image_url", "imageUrl"),
-      options:
-        type === "tf"
-          ? ["TRUE", "FALSE"]
-          : ["A", "B", "C", "D", "E"].filter((letter) =>
-              text(row, `option_${letter.toLowerCase()}`, `option${letter}`)
-            ),
-      type,
-    }))
-    .filter((question) => question.text);
+function restoredProgress(progress: Record<string, unknown> | null) {
+  const data = asRecord(progress?.progress_data ?? progress?.progressData);
+  const answers = asRecord(data.answers);
+  return {
+    answers: Object.fromEntries(
+      Object.entries(answers).map(([key, value]) => [key, String(value || "")])
+    ) as Record<string, string>,
+    flags: Array.isArray(data.flags) ? data.flags.map(String) : [],
+    currentIndex: Math.max(0, Number(data.currentIndex || 0)),
+    submissionId: String(data.submissionId || ""),
+  };
 }
 
-function restoredAnswers(progress: UnknownRow) {
-  const data = asRecord(progress.progress_data ?? progress.progressData);
-  const answers = asRecord(data.answers ?? progress.answers);
-  return Object.fromEntries(
-    Object.entries(answers).map(([key, value]) => [key, String(value || "")])
-  ) as Record<string, string>;
+function useOnlineStatus() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  return online;
 }
 
 export function QuizPage() {
   const params = useSearchParams();
   const router = useRouter();
-  const { user } = useLearnerSession();
-  const quizId = String(params.get("quizId") || "");
-  const mode = params.get("mode") === "exam" ? "exam" : "study";
-  const durationMinutes =
-    Math.max(0, Number(params.get("duration") || 0)) || null;
-  const negativeMarking = params.get("negative") === "1";
+  const queryClient = useQueryClient();
+  const { user, access } = useLearnerSession();
+  const online = useOnlineStatus();
+  const quizId = String(params.get("quizId") || "").trim();
+  const modeParam = parseQuizMode(params.get("mode"));
+  const durationParam = parseDurationParam(params.get("duration"));
+  const negativeParam = parseBooleanParam(params.get("negative"));
+  const mode = modeParam.value;
+  const durationMinutes = durationParam.value;
+  const negativeMarking = negativeParam.value;
+  const invalidSettings =
+    !modeParam.valid || !durationParam.valid || !negativeParam.valid;
   const progressKey = "current";
   const query = useQuery({
-    queryKey: ["learner", "quiz", quizId],
-    queryFn: () => fetchQuizSession(quizId, progressKey),
-    enabled: Boolean(quizId),
+    queryKey: learnerKeys.quiz(quizId),
+    queryFn: async () => {
+      try {
+        return await fetchQuizSession(quizId, progressKey);
+      } catch (error) {
+        const local = await readLocalDraft(
+          user.id,
+          "quiz",
+          quizId,
+          progressKey
+        ).catch(() => undefined);
+        if (local?.sessionPayload) {
+          return local.sessionPayload as QuizSession;
+        }
+        throw error;
+      }
+    },
+    enabled: Boolean(quizId && !invalidSettings),
   });
-  const descriptor = asRecord(query.data?.descriptor);
-  const type =
-    text(descriptor, "question_type", "questionType", "type") === "tf"
-      ? "tf"
-      : "sba";
   const questions = useMemo(
-    () => normalizeQuestions(query.data?.questions, type),
-    [query.data?.questions, type]
+    () => query.data?.questions || [],
+    [query.data?.questions]
   );
+  const descriptor = query.data?.descriptor;
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [flags, setFlags] = useState<string[]>([]);
+  const [feedback, setFeedback] = useState<Record<string, AnswerFeedback>>({});
+  const [checking, setChecking] = useState("");
   const [index, setIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "offline">(
+    "saved"
+  );
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const submissionId = useRef("");
+  const initialized = useRef(false);
 
   useEffect(() => {
-    if (!query.data) return;
-    const progress = asRecord(query.data.progress);
-    setAnswers(restoredAnswers(progress));
-    const savedExpiry = Date.parse(
-      text(progress, "timer_expires_at", "timerExpiresAt")
-    );
-    const expiry = Number.isFinite(savedExpiry)
-      ? savedExpiry
-      : durationMinutes
-        ? Date.now() + durationMinutes * 60_000
-        : null;
-    setExpiresAt(expiry);
-  }, [query.data, durationMinutes]);
+    if (!query.data || initialized.current) return;
+    let active = true;
+    async function restore() {
+      const remote = restoredProgress(query.data?.progress || null);
+      const local = await readLocalDraft(
+        user.id,
+        "quiz",
+        quizId,
+        progressKey
+      ).catch(() => undefined);
+      if (!active) return;
+      const source = local || remote;
+      setAnswers(source.answers || {});
+      setFlags(source.flags || []);
+      setIndex(
+        Math.min(source.currentIndex || 0, Math.max(0, questions.length - 1))
+      );
+      submissionId.current = source.submissionId || crypto.randomUUID();
+      const remoteExpiry = Date.parse(
+        String(
+          query.data?.progress?.timer_expires_at ??
+            query.data?.progress?.timerExpiresAt ??
+            ""
+        )
+      );
+      const localExpiry = local?.timerExpiresAt
+        ? Date.parse(local.timerExpiresAt)
+        : NaN;
+      const expiry = Number.isFinite(localExpiry)
+        ? localExpiry
+        : Number.isFinite(remoteExpiry)
+          ? remoteExpiry
+          : durationMinutes
+            ? Date.now() + durationMinutes * 60_000
+            : null;
+      setExpiresAt(expiry);
+      initialized.current = true;
+    }
+    void restore();
+    return () => {
+      active = false;
+    };
+  }, [durationMinutes, query.data, questions.length, quizId, user.id]);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -125,7 +181,8 @@ export function QuizPage() {
   }, [expiresAt]);
 
   useEffect(() => {
-    if (!query.data || !Object.keys(answers).length) return;
+    if (!initialized.current || !descriptor || !submissionId.current) return;
+    setSaveState("saving");
     const timer = window.setTimeout(() => {
       void saveAssessmentDraft(user.id, "quiz", quizId, {
         progressKey,
@@ -134,8 +191,14 @@ export function QuizPage() {
         negativeMarking,
         context: descriptor,
         answers,
+        flags,
+        currentIndex: index,
+        submissionId: submissionId.current,
         timerExpiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-      }).catch(() => toast.error("Draft could not be synced."));
+        sessionPayload: query.data,
+      })
+        .then(() => setSaveState("saved"))
+        .catch(() => setSaveState("offline"));
     }, 500);
     return () => window.clearTimeout(timer);
   }, [
@@ -143,6 +206,8 @@ export function QuizPage() {
     descriptor,
     durationMinutes,
     expiresAt,
+    flags,
+    index,
     mode,
     negativeMarking,
     query.data,
@@ -150,11 +215,32 @@ export function QuizPage() {
     user.id,
   ]);
 
+  async function selectAnswer(questionId: string, answer: string) {
+    if (mode === "study" && feedback[questionId]) return;
+    setAnswers((current) => ({ ...current, [questionId]: answer }));
+    if (mode !== "study") return;
+    if (!online) {
+      toast.error("Reconnect to check this study answer.");
+      return;
+    }
+    setChecking(questionId);
+    try {
+      const result = await checkQuizAnswer(quizId, questionId, answer);
+      setFeedback((current) => ({ ...current, [questionId]: result }));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Answer could not be checked."
+      );
+    } finally {
+      setChecking("");
+    }
+  }
+
   const submit = useCallback(
     async (timedOut = false) => {
       if (submitting || !questions.length) return;
       const unanswered = questions.filter(
-        (question) => !answers[question.key]
+        (question) => !answers[question.id]
       ).length;
       if (
         !timedOut &&
@@ -164,52 +250,44 @@ export function QuizPage() {
         )
       )
         return;
+      if (!access.hasAccess) {
+        toast.error(
+          "Your access must be active before this assessment can be submitted."
+        );
+        return;
+      }
       setSubmitting(true);
       try {
-        const result = scoreAssessment(questions, answers, negativeMarking);
-        const { error } = await getSupabase().from("quiz_attempts").insert({
-          user_id: user.id,
-          quiz_id: quizId,
-          mode,
-          score: result.score,
-          total_questions: result.total,
-          correct_count: result.correct,
-          wrong_count: result.wrong,
-          unanswered_count: result.unanswered,
-          percentage: result.percentage,
-        });
-        if (error) throw error;
+        const result = await submitQuiz(
+          quizId,
+          submissionId.current || crypto.randomUUID(),
+          answers,
+          { mode, durationMinutes, negativeMarking, timedOut }
+        );
         await deleteAssessmentDraft(user.id, "quiz", quizId, progressKey).catch(
           () => undefined
         );
-        const snapshot: ResultSnapshot = {
-          ...result,
-          quizId,
-          title: text(descriptor, "quiz_title", "title") || "Assessment",
-          mode,
-          negativeMarking,
-          completedAt: new Date().toISOString(),
-        };
-        sessionStorage.setItem(
-          "bitramed:quiz-result",
-          JSON.stringify(snapshot)
+        await queryClient.invalidateQueries({ queryKey: learnerKeys.all });
+        router.replace(
+          `/history/review/?kind=quiz&attemptId=${encodeURIComponent(result.attemptId)}`
         );
-        router.replace("/results/");
-      } catch (caught) {
+      } catch (error) {
         toast.error(
-          caught instanceof Error
-            ? caught.message
-            : "The result could not be saved."
+          error instanceof Error
+            ? error.message
+            : "The result could not be submitted."
         );
         setSubmitting(false);
       }
     },
     [
+      access.hasAccess,
       answers,
-      descriptor,
+      durationMinutes,
       mode,
       negativeMarking,
       progressKey,
+      queryClient,
       questions,
       quizId,
       router,
@@ -222,60 +300,96 @@ export function QuizPage() {
     if (remaining === 0) void submit(true);
   }, [remaining, submit]);
 
-  if (!quizId)
-    return <PageError error={new Error("No assessment was selected.")} />;
+  const answered = useMemo(
+    () => questions.filter((question) => answers[question.id]).length,
+    [answers, questions]
+  );
+
+  if (!quizId || invalidSettings)
+    return <PageError error={new Error("This assessment link is invalid.")} />;
   if (query.isLoading) return <Skeleton className="h-[34rem]" />;
   if (query.error) return <PageError error={query.error} />;
-  if (!questions.length)
-    return (
-      <PageError
-        error={new Error("This assessment has no published questions.")}
-      />
-    );
+  if (!descriptor || !questions.length)
+    return <Empty>This assessment has no published questions.</Empty>;
   const question = questions[Math.min(index, questions.length - 1)];
-  const optionRows =
-    question.type === "tf"
-      ? question.options.map((value) => [value, value])
-      : question.options.map((letter) => [
-          letter,
-          text(
-            asRows(query.data?.questions)[index] || {},
-            `option_${letter.toLowerCase()}`,
-            `option${letter}`
-          ),
-        ]);
-  const answered = Object.keys(answers).filter((key) => answers[key]).length;
+  const currentFeedback = feedback[question.id];
+  const flagged = flags.includes(question.id);
   return (
     <section id="quiz-view" className="mx-auto max-w-4xl">
-      <header className="mb-5 flex items-start justify-between gap-4">
-        <div>
+      <header className="mb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-primary">
             {mode} mode
           </p>
-          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">
-            {text(descriptor, "quiz_title", "title") || "Assessment"}
+          <h1 className="mt-1 truncate text-xl font-semibold sm:text-2xl">
+            {descriptor.title}
           </h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {[descriptor.level, descriptor.area, descriptor.sub]
+              .filter(Boolean)
+              .join(" / ")}
+          </p>
         </div>
         {remaining !== null && (
-          <div className="flex shrink-0 items-center gap-2 rounded-lg border bg-card px-3 py-2 font-medium tabular-nums">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-2 rounded-lg border bg-card px-3 py-2 font-medium tabular-nums",
+              remaining <= 60 && "border-destructive/40 text-destructive"
+            )}
+          >
             <Clock3 className="size-4" />
             {Math.floor(remaining / 60)}:
             {String(remaining % 60).padStart(2, "0")}
           </div>
         )}
       </header>
-      <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full bg-primary transition-all"
-          style={{ width: `${(answered / questions.length) * 100}%` }}
-        />
+
+      <div className="mb-4 flex items-center gap-3">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: `${(answered / questions.length) * 100}%` }}
+          />
+        </div>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          {saveState === "saving" ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : saveState === "offline" ? (
+            <WifiOff className="size-3.5 text-warning" />
+          ) : (
+            <Save className="size-3.5 text-success" />
+          )}
+          {saveState === "saving"
+            ? "Saving"
+            : saveState === "offline"
+              ? "Saved offline"
+              : "Saved"}
+        </span>
       </div>
-      <article className="rounded-lg border bg-card p-5 sm:p-7">
-        <div className="flex justify-between text-xs text-muted-foreground">
+
+      <article className="rounded-lg border bg-card p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>
             Question {index + 1} of {questions.length}
           </span>
-          <span>{answered} answered</span>
+          <Button
+            size="sm"
+            variant={flagged ? "secondary" : "ghost"}
+            onClick={() =>
+              setFlags((current) =>
+                current.includes(question.id)
+                  ? current.filter((id) => id !== question.id)
+                  : [...current, question.id]
+              )
+            }
+          >
+            {flagged ? (
+              <BookmarkCheck className="size-4" />
+            ) : (
+              <Bookmark className="size-4" />
+            )}
+            {flagged ? "Flagged" : "Flag"}
+          </Button>
         </div>
         {question.imageUrl && (
           <Image
@@ -286,44 +400,129 @@ export function QuizPage() {
             className="mt-5 max-h-72 w-full rounded-lg object-contain"
           />
         )}
-        <h2 className="mt-5 text-lg font-medium leading-7 sm:text-xl">
-          {question.text}
+        <h2 className="mt-5 text-base font-medium leading-7 sm:text-lg">
+          {question.questionText}
         </h2>
         <div className="mt-6 grid gap-3">
-          {optionRows.map(([value, label]) => {
-            const selected = answers[question.key] === value;
+          {question.options.map((option) => {
+            const selected = answers[question.id] === option.value;
+            const correctOption =
+              currentFeedback?.correctAnswer === option.value;
+            const incorrectSelected =
+              selected && currentFeedback && !currentFeedback.isCorrect;
             return (
               <button
-                className={`flex min-h-12 items-center gap-3 rounded-lg border p-3 text-left transition-colors ${selected ? "border-primary bg-accent" : "hover:bg-muted"}`}
-                key={value}
+                key={option.value}
                 type="button"
-                onClick={() =>
-                  setAnswers((current) => ({
-                    ...current,
-                    [question.key]: value,
-                  }))
-                }
+                disabled={Boolean(currentFeedback) || checking === question.id}
+                className={cn(
+                  "flex min-h-14 items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted disabled:opacity-100",
+                  selected && !currentFeedback && "border-primary bg-accent",
+                  correctOption && "border-success bg-success/10",
+                  incorrectSelected && "border-destructive bg-destructive/10"
+                )}
+                onClick={() => void selectAnswer(question.id, option.value)}
               >
                 <span
-                  className={`grid size-7 shrink-0 place-items-center rounded-md border text-xs font-semibold ${selected ? "border-primary bg-primary text-primary-foreground" : ""}`}
+                  className={cn(
+                    "grid size-8 shrink-0 place-items-center rounded-lg border text-xs font-semibold",
+                    selected &&
+                      !currentFeedback &&
+                      "border-primary bg-primary text-primary-foreground",
+                    correctOption && "border-success bg-success text-white",
+                    incorrectSelected &&
+                      "border-destructive bg-destructive text-white"
+                  )}
                 >
-                  {selected ? (
+                  {checking === question.id && selected ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : correctOption ? (
+                    <CheckCircle2 className="size-4" />
+                  ) : incorrectSelected ? (
+                    <XCircle className="size-4" />
+                  ) : selected ? (
                     <Check className="size-4" />
-                  ) : value === "TRUE" ? (
+                  ) : option.value === "TRUE" ? (
                     "T"
-                  ) : value === "FALSE" ? (
+                  ) : option.value === "FALSE" ? (
                     "F"
                   ) : (
-                    value
+                    option.value
                   )}
                 </span>
-                <span>{label}</span>
+                <span>{option.label}</span>
               </button>
             );
           })}
         </div>
+        {currentFeedback && (
+          <div
+            role="status"
+            className={cn(
+              "mt-5 rounded-lg border p-4",
+              currentFeedback.isCorrect
+                ? "border-success/30 bg-success/10"
+                : "border-destructive/30 bg-destructive/10"
+            )}
+          >
+            <p
+              className={cn(
+                "flex items-center gap-2 text-sm font-semibold",
+                currentFeedback.isCorrect ? "text-success" : "text-destructive"
+              )}
+            >
+              {currentFeedback.isCorrect ? (
+                <CheckCircle2 className="size-5" />
+              ) : (
+                <XCircle className="size-5" />
+              )}
+              {currentFeedback.isCorrect
+                ? "Correct"
+                : `Incorrect · Correct answer: ${currentFeedback.correctAnswer}`}
+            </p>
+            {currentFeedback.explanation && (
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {currentFeedback.explanation}
+              </p>
+            )}
+          </div>
+        )}
       </article>
-      <footer className="mt-5 flex items-center justify-between gap-3">
+
+      <div
+        className="mt-5 flex flex-wrap gap-2"
+        aria-label="Question navigator"
+      >
+        {questions.map((item, itemIndex) => {
+          const itemFeedback = feedback[item.id];
+          return (
+            <button
+              aria-label={`Question ${itemIndex + 1}${flags.includes(item.id) ? ", flagged" : ""}`}
+              className={cn(
+                "size-11 rounded-lg border text-xs font-medium",
+                itemIndex === index && "border-primary ring-2 ring-primary/20",
+                itemFeedback?.isCorrect && "bg-success/10 text-success",
+                itemFeedback &&
+                  !itemFeedback.isCorrect &&
+                  "bg-destructive/10 text-destructive",
+                !itemFeedback &&
+                  answers[item.id] &&
+                  "bg-accent text-accent-foreground"
+              )}
+              key={item.id}
+              onClick={() => setIndex(itemIndex)}
+            >
+              {flags.includes(item.id) ? (
+                <Flag className="mx-auto size-3" />
+              ) : (
+                itemIndex + 1
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <footer className="sticky bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-20 mt-6 flex items-center justify-between gap-3 rounded-lg border bg-card/95 p-3 shadow-lg backdrop-blur lg:bottom-4">
         <Button
           variant="outline"
           disabled={index === 0}
@@ -333,6 +532,11 @@ export function QuizPage() {
         </Button>
         {index < questions.length - 1 ? (
           <Button
+            disabled={
+              mode === "study" &&
+              Boolean(answers[question.id]) &&
+              !currentFeedback
+            }
             onClick={() =>
               setIndex((value) => Math.min(questions.length - 1, value + 1))
             }
@@ -340,31 +544,24 @@ export function QuizPage() {
             Next <ArrowRight className="size-4" />
           </Button>
         ) : (
-          <Button disabled={submitting} onClick={() => void submit()}>
+          <Button
+            disabled={
+              submitting ||
+              (mode === "study" &&
+                Boolean(answers[question.id]) &&
+                !currentFeedback)
+            }
+            onClick={() => void submit()}
+          >
             {submitting ? (
               <LoaderCircle className="size-4 animate-spin" />
             ) : (
               <Flag className="size-4" />
-            )}{" "}
+            )}
             Submit
           </Button>
         )}
       </footer>
-      <div
-        className="mt-5 flex flex-wrap gap-2"
-        aria-label="Question navigator"
-      >
-        {questions.map((item, itemIndex) => (
-          <button
-            aria-label={`Question ${itemIndex + 1}`}
-            className={`size-8 rounded-md border text-xs font-medium ${itemIndex === index ? "border-primary bg-primary text-primary-foreground" : answers[item.key] ? "bg-accent text-accent-foreground" : "bg-card"}`}
-            key={item.key}
-            onClick={() => setIndex(itemIndex)}
-          >
-            {itemIndex + 1}
-          </button>
-        ))}
-      </div>
     </section>
   );
 }

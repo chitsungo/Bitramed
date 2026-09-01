@@ -7,7 +7,7 @@
     "build": "next build",
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run src/lib/metrics.test.ts src/lib/learner-api.test.ts --environment node --pool forks --maxWorkers 1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.56.1",

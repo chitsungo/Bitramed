@@ -57,6 +57,8 @@ export function YearPage() {
   });
   const normal = asRecord(query.data?.normal);
   const paper = asRecord(query.data?.pastPaper ?? query.data?.past_paper);
+  if (!year)
+    return <PageError error={new Error("No curriculum year was selected.")} />;
   return (
     <section id="year-view">
       <PageHeader
@@ -96,6 +98,8 @@ export function ModulesPage() {
     enabled: Boolean(level),
   });
   const courses = asRows(query.data?.courses);
+  if (!level)
+    return <PageError error={new Error("No curriculum year was selected.")} />;
   return (
     <section id="modules-view">
       <PageHeader
@@ -142,6 +146,8 @@ export function SubtopicsPage() {
     enabled: Boolean(level && area),
   });
   const subtopics = asRows(query.data?.subtopics);
+  if (!level || !area)
+    return <PageError error={new Error("This course link is incomplete.")} />;
   return (
     <section id="subtopics-view">
       <PageHeader
@@ -188,6 +194,8 @@ export function TypesPage() {
     enabled: Boolean(level && area && sub),
   });
   const types = asRows(query.data?.types);
+  if (!level || !area || !sub)
+    return <PageError error={new Error("This module link is incomplete.")} />;
   return (
     <section id="types-view">
       <PageHeader
@@ -255,6 +263,11 @@ export function QuizzesPage() {
   });
   const quizzes = asRows(query.data?.quizzes);
   const summary = asRecord(query.data?.summary);
+  if (!level || !area || !sub || !["sba", "tf"].includes(type)) {
+    return (
+      <PageError error={new Error("This assessment list link is invalid.")} />
+    );
+  }
   return (
     <section id="quiz-list-view">
       <PageHeader
@@ -317,9 +330,9 @@ export function QuizzesPage() {
         <AssessmentSettingsDialog
           title={selected.title}
           close={() => setSelected(null)}
-          start={(duration, negative) =>
+          start={(mode, duration, negative) =>
             router.push(
-              `/quiz/?quizId=${encodeURIComponent(selected.id)}&mode=${duration || negative ? "exam" : "study"}&duration=${duration || ""}&negative=${negative ? "1" : "0"}`
+              `/quiz/?quizId=${encodeURIComponent(selected.id)}&mode=${mode}&duration=${duration || ""}&negative=${negative ? "1" : "0"}`
             )
           }
         />

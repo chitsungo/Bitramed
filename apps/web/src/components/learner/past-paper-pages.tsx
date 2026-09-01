@@ -4,17 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Clock3, FileText, Flag, LoaderCircle } from "lucide-react";
+import { Check, Clock3, Flag, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteAssessmentDraft,
+  readLocalDraft,
   saveAssessmentDraft,
 } from "@/lib/assessment-progress";
 import {
   asRecord,
   asRows,
   fetchPastPaperExams,
-  fetchPastPaperReview,
   fetchPastPaperSession,
   fetchPastPaperTopics,
   fetchPastPaperYears,
@@ -33,6 +33,8 @@ import {
 } from "@/components/learner/page-primitives";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HistoryReviewPage } from "@/components/learner/history-pages";
+import { parseBooleanParam, parseDurationParam } from "@/lib/learner-query";
 
 export function PastPapersPage() {
   const params = useSearchParams();
@@ -97,6 +99,10 @@ export function PastPaperExamsPage() {
   if (query.isLoading) return <Skeleton className="h-80" />;
   if (query.error) return <PageError error={query.error} />;
   const rows = query.data || [];
+  if (!year || !topic)
+    return (
+      <PageError error={new Error("This past-paper link is incomplete.")} />
+    );
   return (
     <section id="past-paper-exams-view">
       <PageHeader eyebrow={`${year} / Past papers`} title={topic || "Exams"} />
@@ -119,8 +125,9 @@ export function PastPaperExamsPage() {
       {selected && (
         <AssessmentSettingsDialog
           title={selected.title}
+          kind="past_paper"
           close={() => setSelected(null)}
-          start={(duration, negative) =>
+          start={(_mode, duration, negative) =>
             router.push(
               `/past-papers/session/?setId=${encodeURIComponent(selected.id)}&duration=${duration || ""}&negative=${negative ? "1" : "0"}`
             )
@@ -153,13 +160,29 @@ export function PastPaperSessionPage() {
   const router = useRouter();
   const { user } = useLearnerSession();
   const setId = String(params.get("setId") || "");
-  const duration = Math.max(0, Number(params.get("duration") || 0)) || null;
-  const negative = params.get("negative") === "1";
+  const durationParam = parseDurationParam(params.get("duration"));
+  const negativeParam = parseBooleanParam(params.get("negative"));
+  const duration = durationParam.value;
+  const negative = negativeParam.value;
+  const invalidSettings = !durationParam.valid || !negativeParam.valid;
   const progressKey = "current";
   const query = useQuery({
     queryKey: ["learner", "paper-session", setId],
-    queryFn: () => fetchPastPaperSession(setId, progressKey),
-    enabled: Boolean(setId),
+    queryFn: async () => {
+      try {
+        return await fetchPastPaperSession(setId, progressKey);
+      } catch (error) {
+        const local = await readLocalDraft(
+          user.id,
+          "past_paper",
+          setId,
+          progressKey
+        ).catch(() => undefined);
+        if (local?.sessionPayload) return asRecord(local.sessionPayload);
+        throw error;
+      }
+    },
+    enabled: Boolean(setId && !invalidSettings),
   });
   const paper = asRecord(query.data?.paper);
   const units = useMemo(
@@ -170,27 +193,50 @@ export function PastPaperSessionPage() {
   const [busy, setBusy] = useState(false);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [submissionId, setSubmissionId] = useState("");
   useEffect(() => {
     if (!query.data) return;
-    const progress = asRecord(query.data.progress);
-    const data = asRecord(progress.progress_data ?? progress.progressData);
-    const saved = asRecord(data.answers);
-    setAnswers(
-      Object.fromEntries(
-        Object.entries(saved).map(([key, value]) => [key, String(value)])
-      )
-    );
-    const parsed = Date.parse(
-      text(progress, "timer_expires_at", "timerExpiresAt")
-    );
-    setExpiresAt(
-      Number.isFinite(parsed)
-        ? parsed
-        : duration
-          ? Date.now() + duration * 60000
-          : null
-    );
-  }, [query.data, duration]);
+    let active = true;
+    async function restore() {
+      const progress = asRecord(query.data?.progress);
+      const data = asRecord(progress.progress_data ?? progress.progressData);
+      const local = await readLocalDraft(
+        user.id,
+        "past_paper",
+        setId,
+        progressKey
+      ).catch(() => undefined);
+      if (!active) return;
+      const saved = local?.answers || asRecord(data.answers);
+      setSubmissionId(
+        local?.submissionId || String(data.submissionId || crypto.randomUUID())
+      );
+      setAnswers(
+        Object.fromEntries(
+          Object.entries(saved).map(([key, value]) => [key, String(value)])
+        )
+      );
+      const localExpiry = local?.timerExpiresAt
+        ? Date.parse(local.timerExpiresAt)
+        : NaN;
+      const remoteExpiry = Date.parse(
+        text(progress, "timer_expires_at", "timerExpiresAt")
+      );
+      setExpiresAt(
+        Number.isFinite(localExpiry)
+          ? localExpiry
+          : Number.isFinite(remoteExpiry)
+            ? remoteExpiry
+            : duration
+              ? Date.now() + duration * 60000
+              : null
+      );
+    }
+    void restore();
+    return () => {
+      active = false;
+    };
+  }, [query.data, duration, setId, user.id]);
   useEffect(() => {
     if (!expiresAt) return;
     const tick = () =>
@@ -200,7 +246,7 @@ export function PastPaperSessionPage() {
     return () => window.clearInterval(id);
   }, [expiresAt]);
   useEffect(() => {
-    if (!query.data || !Object.keys(answers).length) return;
+    if (!query.data || !submissionId) return;
     const id = window.setTimeout(
       () =>
         void saveAssessmentDraft(user.id, "past_paper", setId, {
@@ -210,7 +256,11 @@ export function PastPaperSessionPage() {
           negativeMarking: negative,
           context: paper,
           answers,
+          flags: [],
+          currentIndex: 0,
+          submissionId,
           timerExpiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+          sessionPayload: query.data,
         }).catch(() => toast.error("Draft could not be synced.")),
       500
     );
@@ -223,6 +273,7 @@ export function PastPaperSessionPage() {
     paper,
     query.data,
     setId,
+    submissionId,
     user.id,
   ]);
   const total = units.reduce((sum, unit) => sum + unit.branches.length, 0);
@@ -244,12 +295,17 @@ export function PastPaperSessionPage() {
         const submittedAnswers = Object.fromEntries(
           Object.entries(answers).filter(([, value]) => value !== "not_sure")
         );
-        const data = await submitPastPaper(setId, submittedAnswers, {
-          durationMinutes: duration,
-          negativeMarking: negative,
-          timedOut,
-        });
-        const attemptId = text(data, "attemptId", "attempt_id");
+        const data = await submitPastPaper(
+          setId,
+          submissionId || crypto.randomUUID(),
+          submittedAnswers,
+          {
+            durationMinutes: duration,
+            negativeMarking: negative,
+            timedOut,
+          }
+        );
+        const attemptId = data.attemptId;
         if (!attemptId)
           throw new Error("The server did not return an attempt reference.");
         await deleteAssessmentDraft(
@@ -259,7 +315,7 @@ export function PastPaperSessionPage() {
           progressKey
         ).catch(() => undefined);
         router.replace(
-          `/past-papers/review/?attemptId=${encodeURIComponent(attemptId)}`
+          `/history/review/?kind=past_paper&attemptId=${encodeURIComponent(attemptId)}`
         );
       } catch (caught) {
         toast.error(
@@ -279,6 +335,7 @@ export function PastPaperSessionPage() {
       progressKey,
       router,
       setId,
+      submissionId,
       total,
       user.id,
     ]
@@ -286,7 +343,8 @@ export function PastPaperSessionPage() {
   useEffect(() => {
     if (remaining === 0) void submit(true);
   }, [remaining, submit]);
-  if (!setId) return <PageError error={new Error("No paper was selected.")} />;
+  if (!setId || invalidSettings)
+    return <PageError error={new Error("This past-paper link is invalid.")} />;
   if (query.isLoading) return <Skeleton className="h-[36rem]" />;
   if (query.error) return <PageError error={query.error} />;
   if (!units.length)
@@ -322,9 +380,32 @@ export function PastPaperSessionPage() {
           ["Remaining", total - answered],
         ]}
       />
+      <nav
+        className="mb-5 flex gap-2 overflow-x-auto pb-1"
+        aria-label="Paper section navigator"
+      >
+        {units.map((unit, unitIndex) => {
+          const sectionAnswered = unit.branches.filter(
+            (branch) => answers[branch.id]
+          ).length;
+          return (
+            <a
+              key={unit.id}
+              href={`#paper-section-${unitIndex + 1}`}
+              className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border bg-card px-3 text-xs font-medium hover:bg-muted"
+            >
+              Section {unitIndex + 1}
+              <span className="text-muted-foreground">
+                {sectionAnswered}/{unit.branches.length}
+              </span>
+            </a>
+          );
+        })}
+      </nav>
       <div className="space-y-5">
         {units.map((unit, unitIndex) => (
           <article
+            id={`paper-section-${unitIndex + 1}`}
             className="rounded-lg border bg-card p-5 sm:p-6"
             key={unit.id}
           >
@@ -378,7 +459,7 @@ export function PastPaperSessionPage() {
           </article>
         ))}
       </div>
-      <div className="sticky bottom-4 mt-6 flex justify-end">
+      <div className="sticky bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-20 mt-6 flex justify-end rounded-lg border bg-card/95 p-3 shadow-lg backdrop-blur lg:bottom-4">
         <Button size="lg" disabled={busy} onClick={() => void submit()}>
           {busy ? (
             <LoaderCircle className="size-4 animate-spin" />
@@ -393,83 +474,5 @@ export function PastPaperSessionPage() {
 }
 
 export function PastPaperReviewPage() {
-  const params = useSearchParams();
-  const attemptId = String(params.get("attemptId") || "");
-  const query = useQuery({
-    queryKey: ["learner", "paper-review", attemptId],
-    queryFn: () => fetchPastPaperReview(attemptId),
-    enabled: Boolean(attemptId),
-  });
-  if (query.isLoading) return <Skeleton className="h-96" />;
-  if (query.error) return <PageError error={query.error} />;
-  const attempt = asRecord(query.data?.attempt);
-  const units = asRows(query.data?.units);
-  return (
-    <section id="past-paper-review-view">
-      <PageHeader
-        eyebrow="Past paper result"
-        title={text(attempt, "title") || "Review"}
-      />
-      <StatStrip
-        className="mb-7"
-        items={[
-          [
-            "Score",
-            `${number(attempt, "score")}/${number(attempt, "totalMarks", "total_marks")}`,
-          ],
-          ["Correct", number(attempt, "correct")],
-          ["Percentage", `${number(attempt, "percentage")}%`],
-        ]}
-      />
-      <div className="space-y-5">
-        {units.map((unit, index) => (
-          <article className="rounded-lg border bg-card p-5" key={index}>
-            <h2 className="font-medium">{text(unit, "stem")}</h2>
-            <div className="mt-4 divide-y">
-              {asRows(unit.branches).map((branch, branchIndex) => {
-                const correct =
-                  branch.isCorrect === true || branch.is_correct === true;
-                return (
-                  <div className="py-4 text-sm" key={branchIndex}>
-                    <div className="flex gap-3">
-                      <span
-                        className={
-                          correct ? "text-success" : "text-destructive"
-                        }
-                      >
-                        {correct ? "Correct" : "Incorrect"}
-                      </span>
-                      <p>{text(branch, "prompt")}</p>
-                    </div>
-                    <p className="mt-2 text-muted-foreground">
-                      Your answer:{" "}
-                      {String(
-                        branch.userAnswer ?? branch.user_answer ?? "Unanswered"
-                      )}{" "}
-                      / Correct:{" "}
-                      {String(
-                        branch.correctAnswer ?? branch.correct_answer ?? ""
-                      )}
-                    </p>
-                    {text(branch, "explanation") && (
-                      <p className="mt-2 leading-6 text-muted-foreground">
-                        {text(branch, "explanation")}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-        ))}
-      </div>
-      <a
-        href="/past-papers/"
-        className="mt-6 inline-flex h-9 items-center gap-2 rounded-lg border px-4 text-sm font-medium hover:bg-muted"
-      >
-        <FileText className="size-4" />
-        More papers
-      </a>
-    </section>
-  );
+  return <HistoryReviewPage forcedKind="past_paper" />;
 }

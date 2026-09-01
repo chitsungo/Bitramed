@@ -10,17 +10,22 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { AlertTriangle, LogOut, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
-import {
-  fetchShellBootstrap,
-  normalizeAccess,
-  rpc,
-  type AccessStatus,
-} from "@/lib/learner-api";
+import { fetchShellBootstrap } from "@/lib/learner-api";
 import { getSupabase } from "@/lib/supabase";
+import {
+  clearLocalLearnerSession,
+  reconcileLocalLearnerIdentity,
+} from "@/lib/assessment-store";
+import type { AccessStatus, LearnerPreferences } from "@/types/learner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type LearnerSession = { user: User; access: AccessStatus };
+type LearnerSession = {
+  user: User;
+  access: AccessStatus;
+  preferences: LearnerPreferences;
+  updatePreferences: (preferences: LearnerPreferences) => void;
+};
 const LearnerSessionContext = createContext<LearnerSession | null>(null);
 
 export function useLearnerSession() {
@@ -47,22 +52,26 @@ export function LearnerGate({ children }: { children: ReactNode }) {
           window.location.replace(`/?next=${encodeURIComponent(next)}`);
           return;
         }
-        let bootstrap;
-        try {
-          bootstrap = await fetchShellBootstrap();
-        } catch (bootstrapError) {
-          const code = String(
-            (bootstrapError as { code?: string })?.code || ""
-          );
-          if (code !== "PGRST202" && code !== "42883") throw bootstrapError;
-          bootstrap = {
-            access: normalizeAccess(await rpc("app_my_access_status")),
-            themePreference: null,
-          };
-        }
+        await reconcileLocalLearnerIdentity(user.id).catch(() => undefined);
+        const bootstrap = await fetchShellBootstrap();
         if (!active) return;
-        if (bootstrap.themePreference) setTheme(bootstrap.themePreference);
-        setSession({ user, access: bootstrap.access });
+        setTheme(bootstrap.preferences.theme);
+        const app = document.querySelector<HTMLElement>(".learner-app");
+        if (app) {
+          app.dataset.textSize = bootstrap.preferences.textSize;
+          app.dataset.reducedMotion = String(
+            bootstrap.preferences.reducedMotion
+          );
+        }
+        setSession({
+          user,
+          access: bootstrap.access,
+          preferences: bootstrap.preferences,
+          updatePreferences: (preferences) =>
+            setSession((current) =>
+              current ? { ...current, preferences } : current
+            ),
+        });
       } catch (caught) {
         if (active)
           setError(
@@ -125,6 +134,8 @@ export function LearnerGate({ children }: { children: ReactNode }) {
       ],
       signed_out: ["Sign in required", "Sign in again to continue."],
       active: ["Access unavailable", "Refresh the page to try again."],
+      expiring: ["Access expiring", "Renew your learner access to continue."],
+      owner: ["Owner access unavailable", "Refresh the page to try again."],
     }[session.access.status];
     return (
       <main id="access-view" className="grid min-h-dvh place-items-center p-5">
@@ -151,6 +162,9 @@ export function LearnerGate({ children }: { children: ReactNode }) {
             className="mt-6"
             variant="outline"
             onClick={async () => {
+              await clearLocalLearnerSession(session.user.id).catch(
+                () => undefined
+              );
               await getSupabase().auth.signOut();
               window.location.assign("/");
             }}

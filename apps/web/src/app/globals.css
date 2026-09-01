@@ -129,3 +129,101 @@ textarea {
 ::selection {
   background: color-mix(in oklab, var(--primary) 24%, transparent);
 }
+
+.learner-app {
+  --background: #f4f7f8;
+  --foreground: #172126;
+  --card: #ffffff;
+  --card-foreground: #172126;
+  --popover: #ffffff;
+  --popover-foreground: #172126;
+  --primary: #087f7a;
+  --primary-foreground: #ffffff;
+  --action: #172126;
+  --action-foreground: #ffffff;
+  --secondary: #e8eef0;
+  --secondary-foreground: #34434a;
+  --muted: #edf2f3;
+  --muted-foreground: #5d6972;
+  --accent: #dff3f1;
+  --accent-foreground: #075f5b;
+  --success: #16804a;
+  --warning: #a66610;
+  --destructive: #c53b36;
+  --border: #d8e0e5;
+  --input: #c9d4d9;
+  --ring: #087f7a;
+  --chart-1: #087f7a;
+  --chart-2: #16804a;
+  --chart-3: #b7791f;
+  --chart-4: #c53b36;
+  --radius: 0.5rem;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.dark .learner-app {
+  --background: #111719;
+  --foreground: #edf4f5;
+  --card: #192124;
+  --card-foreground: #edf4f5;
+  --popover: #202a2e;
+  --popover-foreground: #edf4f5;
+  --primary: #4cc6bb;
+  --primary-foreground: #0d2422;
+  --action: #edf4f5;
+  --action-foreground: #111719;
+  --secondary: #263236;
+  --secondary-foreground: #d4dfe2;
+  --muted: #202a2e;
+  --muted-foreground: #a8b5ba;
+  --accent: #173c3a;
+  --accent-foreground: #8ee1d9;
+  --success: #4fb67a;
+  --warning: #e7b34b;
+  --destructive: #ef6b66;
+  --border: #344148;
+  --input: #435159;
+  --ring: #4cc6bb;
+  --chart-1: #4cc6bb;
+  --chart-2: #4fb67a;
+  --chart-3: #e7b34b;
+  --chart-4: #ef6b66;
+}
+
+.learner-app[data-text-size="large"] {
+  font-size: 112.5%;
+}
+
+.learner-app[data-reduced-motion="true"] *,
+.learner-app[data-reduced-motion="true"] *::before,
+.learner-app[data-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+.learner-app button:not(.compact-control),
+.learner-app [role="button"] {
+  min-block-size: 2.75rem;
+}
+
+.learner-app button[aria-label]:not(.compact-control) {
+  min-inline-size: 2.75rem;
+}
+
+.learner-bottom-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.learner-content-safe {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 1024px) {
+  .learner-content-safe {
+    padding-bottom: 2rem;
+  }
+}

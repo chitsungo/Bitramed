@@ -25,6 +25,10 @@ type QuizAttemptRow = {
   unanswered_count: number;
   percentage: number;
   completed_at: string;
+  duration_minutes: number | null;
+  negative_marking: boolean;
+  timed_out: boolean;
+  submission_id: string | null;
 };
 
 type ProgressRow = {
@@ -55,8 +59,24 @@ export type Database = {
           Partial<Pick<ProgressRow, "updated_at">>
       >;
       user_preferences: Table<
-        { user_id: string; theme: string },
-        { user_id: string; theme: string }
+        {
+          user_id: string;
+          theme: string;
+          text_size: string;
+          reduced_motion: boolean;
+          default_mode: string;
+          default_duration_minutes: number | null;
+          default_negative_marking: boolean;
+        },
+        {
+          user_id: string;
+          theme: string;
+          text_size?: string;
+          reduced_motion?: boolean;
+          default_mode?: string;
+          default_duration_minutes?: number | null;
+          default_negative_marking?: boolean;
+        }
       >;
     };
     Views: Record<never, never>;

@@ -8,11 +8,9 @@ export const metadata: Metadata = {
   description:
     "Medical revision, quizzes, and past papers for Bitramed learners.",
   icons: {
-    icon: "https://frlujqujvpqwvtavofdq.supabase.co/storage/v1/object/public/Site%20Images/favicon.png",
-    shortcut:
-      "https://frlujqujvpqwvtavofdq.supabase.co/storage/v1/object/public/Site%20Images/favicon.png",
-    apple:
-      "https://frlujqujvpqwvtavofdq.supabase.co/storage/v1/object/public/Site%20Images/favicon.png",
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 
