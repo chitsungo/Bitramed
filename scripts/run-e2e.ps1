@@ -8,7 +8,7 @@ $server = $null
 try {
   $server = Start-Process `
     -FilePath "node.exe" `
-    -ArgumentList @($serverScript, "public", "-a", "0.0.0.0", "-p", "3000", "-c-1") `
+    -ArgumentList @($serverScript, "apps/web/out", "-a", "0.0.0.0", "-p", "3000", "-c-1") `
     -WorkingDirectory $root `
     -WindowStyle Hidden `
     -PassThru
@@ -16,7 +16,7 @@ try {
   $ready = $false
   for ($i = 0; $i -lt 30; $i++) {
     try {
-      $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/app.html" -UseBasicParsing -TimeoutSec 2
+      $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/" -UseBasicParsing -TimeoutSec 2
       if ($response.StatusCode -eq 200) {
         $ready = $true
         break
@@ -27,7 +27,7 @@ try {
   }
 
   if (-not $ready) {
-    throw "Timed out waiting for http://127.0.0.1:3000/app.html"
+    throw "Timed out waiting for http://127.0.0.1:3000/"
   }
 
   & $playwright test @args

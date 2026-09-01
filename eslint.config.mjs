@@ -1,3 +1,7 @@
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+import nextPlugin from "@next/eslint-plugin-next";
+
 export default [
   {
     files: ["src/**/*.js", "public/src/**/*.js"],
@@ -66,6 +70,23 @@ export default [
       "no-undef": "error",
       "no-unreachable": "error",
       "prefer-const": "error",
+    },
+  },
+  ...tseslint.configs.recommended.map((config) => ({
+    ...config,
+    files: ["apps/web/src/**/*.{ts,tsx}", "apps/web/*.ts"],
+  })),
+  {
+    files: ["apps/web/src/**/*.{ts,tsx}", "apps/web/*.ts"],
+    plugins: {
+      "react-hooks": reactHooks,
+      "@next/next": nextPlugin,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      ...nextPlugin.configs.recommended.rules,
+      ...nextPlugin.configs["core-web-vitals"].rules,
+      "@typescript-eslint/no-explicit-any": "error",
     },
   },
 ];

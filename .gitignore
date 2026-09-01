@@ -1,12 +1,10 @@
 node_modules/
 test-results/
 playwright-report/
-apps/admin/.next/
-apps/admin/out/
-apps/admin/tsconfig.tsbuildinfo
-apps/admin/.env.local
-public/admin/
-public/JAK2V617F/
+apps/web/.next/
+apps/web/out/
+apps/web/tsconfig.tsbuildinfo
+apps/web/.env.local
 supabase/.temp/
 .npm-cache-admin/
 .env

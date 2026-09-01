@@ -1,0 +1,131 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #ece5dc;
+  --foreground: #1b1712;
+  --card: #f8f2ea;
+  --card-foreground: #1b1712;
+  --popover: #fdf9f3;
+  --popover-foreground: #1b1712;
+  --primary: #205e5b;
+  --primary-foreground: #ffffff;
+  --action: #2f2720;
+  --action-foreground: #ffffff;
+  --secondary: #e5ddd2;
+  --secondary-foreground: #4b4339;
+  --muted: #efe7de;
+  --muted-foreground: #675d53;
+  --accent: #dfece8;
+  --accent-foreground: #205e5b;
+  --success: #356445;
+  --warning: #9b7040;
+  --destructive: #b5292a;
+  --border: rgba(91, 78, 63, 0.14);
+  --input: rgba(107, 93, 83, 0.2);
+  --ring: #205e5b;
+  --chart-1: #205e5b;
+  --chart-2: #356445;
+  --chart-3: #9b7040;
+  --chart-4: #b5292a;
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: #181613;
+  --foreground: #f2ede5;
+  --card: #211e1b;
+  --card-foreground: #f2ede5;
+  --popover: #282521;
+  --popover-foreground: #f2ede5;
+  --primary: #79aea5;
+  --primary-foreground: #181613;
+  --action: #efe7dc;
+  --action-foreground: #181613;
+  --secondary: #221f1c;
+  --secondary-foreground: #d1c6ba;
+  --muted: #25211e;
+  --muted-foreground: #b4a89b;
+  --accent: rgba(121, 174, 165, 0.12);
+  --accent-foreground: #bcd8d1;
+  --success: #88bd94;
+  --warning: #d1a36d;
+  --destructive: #db6a63;
+  --border: rgba(255, 247, 236, 0.1);
+  --input: rgba(255, 247, 236, 0.14);
+  --ring: #79aea5;
+  --chart-1: #79aea5;
+  --chart-2: #88bd94;
+  --chart-3: #d1a36d;
+  --chart-4: #db6a63;
+}
+
+@theme inline {
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-color: var(--ring);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 24%, transparent);
+}

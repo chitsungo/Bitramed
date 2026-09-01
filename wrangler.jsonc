@@ -5,7 +5,7 @@
     "command": "npm run build",
   },
   "assets": {
-    "directory": "./public",
+    "directory": "./apps/web/out",
     "not_found_handling": "404-page",
   },
 }

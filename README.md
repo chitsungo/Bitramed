@@ -1,57 +1,36 @@
 # Bitramed
 
-Bitramed combines the existing learner-facing static application with a separately built Next.js admin control room. The admin source lives in `apps/admin` and is exported into `public/JAK2V617F` during the root build so the existing Cloudflare static-asset deployment continues to serve one site.
+Bitramed is a single Next.js application for learners and administrators. It uses the App Router, Supabase, React Query, Tailwind CSS, and a static export suitable for Cloudflare Workers Assets.
 
-## Admin development
+## Development
 
 Requirements: Node.js 20 or newer and npm.
 
-1. Install dependencies from the repository root:
-
-   ```bash
-   npm install
-   ```
-
-2. Optionally copy `apps/admin/.env.example` to `apps/admin/.env.local` and set the existing Supabase public URL and anonymous key. Repository defaults point to the current Bitramed project so existing browser sessions keep working.
-
-3. Start the learner app and Next.js admin together:
-
-   ```bash
-   npm run dev:admin
-   ```
-
-4. Open `http://localhost:3000/JAK2V617F/`. Unauthenticated users are returned to the learner sign-in flow; only owner or allowlisted accounts pass the `is_current_user_admin` gate.
-
-Useful checks:
-
 ```bash
-npm run typecheck
-npm run lint:admin
-npm run test:admin
-npm run build
+npm install
+npm run dev
 ```
 
-`npm run build` first builds the legacy learner assets, then statically exports Next.js with the `/JAK2V617F` base path and publishes the output to `public/JAK2V617F`. It also removes any generated `public/admin` output so `/admin` remains unavailable. Do not edit generated files in `public/JAK2V617F`; change `apps/admin` instead.
+Open `http://localhost:3000/` for the learner app or `http://localhost:3000/JAK2V617F/` for the owner-only admin panel. Environment defaults use the current Supabase project; copy `apps/web/.env.example` to `apps/web/.env.local` to override them.
 
-## Admin structure
+## Verification
 
-- `apps/admin/src/app` — App Router pages for overview, learners, access, analytics and activity.
-- `apps/admin/src/components` — shared shell, owner gate, shadcn-style UI primitives, dialogs and states.
-- `apps/admin/src/lib/admin-api.ts` — typed Supabase RPC boundary and runtime response validation.
-- `apps/admin/src/lib/metrics.ts` — combined normal-quiz and past-paper selectors.
-- `apps/admin/src/types` — admin data contracts.
-- `supabase/migrations` — versioned RPC permission and ownership hardening.
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run test:e2e
+```
 
-The browser gate is a UX boundary only. Database functions must retain their internal owner check and must not grant execution to `anon` or `public`; the hardening migration enforces both.
+The application source is under `apps/web/src`. Learner routes are grouped in `app/(learner)`, the admin routes are under `app/JAK2V617F`, shared data boundaries are under `lib`, and browser workflows are covered by `tests/web.spec.js`.
 
-## Cloudflare deployment
-
-Cloudflare Workers Builds should track the `main` branch and use this deploy command:
+## Deployment
 
 ```bash
 npx wrangler deploy
 ```
 
-The checked-in Wrangler configuration runs `npm run build` before every deployment, then uploads `public` as the Worker asset directory. The root `wrangler.jsonc` is preferred. The compatibility configuration in `public/wrangler.jsonc` performs the same root build for existing Cloudflare projects whose root directory is still set to `public`.
+The checked-in `wrangler.jsonc` runs the production build and publishes `apps/web/out`. Next.js exports both learner and admin routes as one immutable artifact; there is no legacy learner bundle or admin copy step.
 
-Generated Next.js files under `apps/admin/.next`, `apps/admin/out`, `public/admin` and `public/JAK2V617F` are intentionally ignored. They are recreated or removed during deployment and must not be committed.
+The browser access gates are user-experience boundaries. Supabase RLS and the admin RPC owner checks remain the authorization boundaries and must stay enabled.
