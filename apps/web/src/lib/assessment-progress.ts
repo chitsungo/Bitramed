@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase";
+import { clearDrafts } from "@/lib/learner-api";
 import type { Json } from "@/types/database";
 import {
   clearLocalLearnerData,
@@ -89,8 +90,7 @@ export async function clearAssessmentHistory(userId: string) {
 }
 
 export async function clearAssessmentDrafts(userId: string) {
-  const result = await getSupabase().rpc("app_clear_assessment_drafts");
-  if (result.error) throw result.error;
+  await clearDrafts();
   await clearLocalLearnerData(userId).catch(() => undefined);
 }
 

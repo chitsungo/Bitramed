@@ -12,10 +12,15 @@ test.beforeEach(async ({ page }) => {
 
 async function installSupabase(
   page,
-  { signedIn = true, accessStatus = "active", admin = false } = {}
+  {
+    signedIn = true,
+    accessStatus = "active",
+    admin = false,
+    legacyContracts = false,
+  } = {}
 ) {
   await page.addInitScript(
-    ({ signedIn, accessStatus, admin }) => {
+    ({ signedIn, accessStatus, admin, legacyContracts }) => {
       const user = signedIn
         ? {
             id: "user-1",
@@ -62,10 +67,16 @@ async function installSupabase(
         },
       ];
       const ok = (data = null) => Promise.resolve({ data, error: null });
+      const inserted = {
+        select: () => ({ single: () => ok({ id: "61" }) }),
+        then(resolve, reject) {
+          return ok(null).then(resolve, reject);
+        },
+      };
       const builder = () => {
         const chain = {
           upsert: () => ok(null),
-          insert: () => ok(null),
+          insert: () => inserted,
           delete: () => chain,
           select: () => chain,
           eq: () => chain,
@@ -87,6 +98,13 @@ async function installSupabase(
         window.__rpcCalls.push({ name, params });
         if (name === "app_shell_bootstrap_v2") {
           return { schemaVersion: 2, access, preferences };
+        }
+        if (name === "app_shell_bootstrap") {
+          return {
+            schemaVersion: 1,
+            access,
+            themePreference: "light",
+          };
         }
         if (name === "app_home_bootstrap_v2") {
           return {
@@ -121,6 +139,37 @@ async function installSupabase(
             bestAttempt: { percentage: 100 },
             drafts: [],
             recentAttempts: attempts,
+          };
+        }
+        if (name === "app_home_bootstrap") {
+          return {
+            schemaVersion: 1,
+            access,
+            themePreference: "light",
+            dashboard: {
+              activeYears: 1,
+              completedCount: 2,
+              averageScore: 88,
+              levels: [
+                {
+                  levelId: "level-1",
+                  name: "Year 1",
+                  displayOrder: 1,
+                  courseCount: 1,
+                  doneCount: 1,
+                  totalCount: 2,
+                  percent: 50,
+                },
+              ],
+              pastPaperYears: [
+                {
+                  year_label: "Year 1",
+                  exam_count: 1,
+                  total_marks: 2,
+                  best_percentage: 100,
+                },
+              ],
+            },
           };
         }
         if (name === "app_year_overview") {
@@ -208,6 +257,22 @@ async function installSupabase(
             ],
           };
         }
+        if (name === "app_quiz_search") {
+          return {
+            schemaVersion: 1,
+            results: [
+              {
+                quizId: "quiz-1",
+                title: "Anatomy essentials",
+                level: "Year 1",
+                area: "Anatomy",
+                sub: "Introduction",
+                type: "tf",
+                count: 2,
+              },
+            ],
+          };
+        }
         if (name === "app_quiz_session_v2") {
           return {
             schemaVersion: 2,
@@ -229,6 +294,34 @@ async function installSupabase(
                 id: "q2",
                 position: 2,
                 questionText: "The heart is a bone.",
+              },
+            ],
+            progress: null,
+          };
+        }
+        if (name === "app_quiz_session") {
+          return {
+            schemaVersion: 1,
+            descriptor: {
+              quiz_id: "quiz-1",
+              quiz_title: "Anatomy essentials",
+              question_type: "tf",
+              level: "Year 1",
+              area: "Anatomy",
+              sub: "Introduction",
+            },
+            questions: [
+              {
+                id: "q1",
+                question_text: "The anatomical position is upright.",
+                correct_answer: "TRUE",
+                explanation: "This is the standard reference position.",
+              },
+              {
+                id: "q2",
+                question_text: "The heart is a bone.",
+                correct_answer: "FALSE",
+                explanation: "The heart is an organ.",
               },
             ],
             progress: null,
@@ -397,6 +490,21 @@ async function installSupabase(
             timedOut: false,
           };
         }
+        if (name === "app_submit_past_paper_attempt") {
+          return {
+            attemptId: "52",
+            setId: "paper-1",
+            score: 2,
+            totalMarks: 2,
+            correct: 2,
+            wrong: 0,
+            unanswered: 0,
+            percentage: 100,
+            durationMinutes: params.p_duration_minutes,
+            negativeMarking: params.p_negative_marking,
+            timedOut: false,
+          };
+        }
         if (name === "app_past_paper_attempt_review_v2") {
           return {
             schemaVersion: 2,
@@ -432,6 +540,28 @@ async function installSupabase(
                 ],
               },
             ],
+          };
+        }
+        if (name === "app_past_paper_attempt_review") {
+          return {
+            attempt: {
+              attemptId: "52",
+              setId: "paper-1",
+              title: "Anatomy Past Paper",
+              yearLabel: "Year 1",
+              topicLabel: "Anatomy",
+              score: 2,
+              totalMarks: 2,
+              correct: 2,
+              wrong: 0,
+              unanswered: 0,
+              percentage: 100,
+              durationMinutes: null,
+              negativeMarking: false,
+              timedOut: false,
+              completedAt: "2026-08-30T10:00:00Z",
+            },
+            units: [],
           };
         }
         if (
@@ -495,6 +625,30 @@ async function installSupabase(
           },
           rpc: (name, params = {}) => {
             if (
+              legacyContracts &&
+              [
+                "app_shell_bootstrap_v2",
+                "app_home_bootstrap_v2",
+                "app_learning_search",
+                "app_quiz_session_v2",
+                "app_check_quiz_answer",
+                "app_submit_quiz_attempt",
+                "app_attempt_history",
+                "app_quiz_attempt_review",
+                "app_submit_past_paper_attempt_v2",
+                "app_past_paper_attempt_review_v2",
+                "app_clear_assessment_drafts",
+              ].includes(name)
+            ) {
+              return Promise.resolve({
+                data: null,
+                error: {
+                  code: "PGRST202",
+                  message: `Could not find the function public.${name} in the schema cache`,
+                },
+              });
+            }
+            if (
               localStorage.getItem("test:assessment-offline") === "1" &&
               ["app_quiz_session_v2", "app_past_paper_session"].includes(name)
             ) {
@@ -509,7 +663,7 @@ async function installSupabase(
         }),
       };
     },
-    { signedIn, accessStatus, admin }
+    { signedIn, accessStatus, admin, legacyContracts }
   );
 }
 
@@ -554,6 +708,30 @@ test("learner shell navigates and unified search returns both content types", as
   await expect(
     page.getByText("Anatomy Past Paper", { exact: true })
   ).toBeVisible();
+});
+
+test("learner app remains usable before the v2 database rollout", async ({
+  page,
+}) => {
+  await installSupabase(page, { legacyContracts: true });
+  await page.goto("/home/");
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Welcome back, Amina" })
+  ).toBeVisible();
+  await page.locator("#search-toggle-btn").click();
+  await page.locator("#global-search").fill("anatomy");
+  await expect(
+    page.getByText("Anatomy essentials", { exact: true })
+  ).toBeVisible();
+
+  await page.goto("/quiz/?quizId=quiz-1&mode=study&negative=0");
+  await page.getByRole("button", { name: "T True", exact: true }).click();
+  await expect(page.getByText("Correct", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Next/ }).click();
+  await page.getByRole("button", { name: "F False", exact: true }).click();
+  await page.getByRole("button", { name: /Submit/ }).click();
+  await expect(page.locator("#history-review-view")).toBeVisible();
 });
 
 test("study mode checks answers immediately and submits to durable review", async ({

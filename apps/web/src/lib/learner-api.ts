@@ -17,6 +17,20 @@ import {
   normalizeAccess,
   normalizePreferences,
 } from "@/lib/learner-normalizers";
+import {
+  checkLegacyQuizAnswer,
+  clearLegacyDrafts,
+  fetchLegacyHistory,
+  fetchLegacyHome,
+  fetchLegacyQuizSession,
+  fetchLegacyReview,
+  fetchLegacySearch,
+  fetchLegacyShell,
+  isMissingRpcError,
+  saveLegacyPreferences,
+  submitLegacyPastPaper,
+  submitLegacyQuiz,
+} from "@/lib/learner-legacy-api";
 export {
   defaultPreferences,
   normalizeAccess,
@@ -357,23 +371,34 @@ export async function rpc(
 }
 
 export async function fetchShellBootstrap() {
-  const payload = parseContract(
-    shellDtoSchema,
-    await rpc("app_shell_bootstrap_v2"),
-    "Shell bootstrap"
-  );
-  return {
-    access: normalizeAccess(payload.access),
-    preferences: normalizePreferences(payload.preferences),
-  };
+  try {
+    const payload = parseContract(
+      shellDtoSchema,
+      await rpc("app_shell_bootstrap_v2"),
+      "Shell bootstrap"
+    );
+    return {
+      access: normalizeAccess(payload.access),
+      preferences: normalizePreferences(payload.preferences),
+    };
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacyShell(rpc);
+  }
 }
 
 export async function fetchHomeBootstrap(): Promise<HomeBootstrap> {
-  const payload = parseContract(
-    homeDtoSchema,
-    await rpc("app_home_bootstrap_v2"),
-    "Home bootstrap"
-  );
+  let payload: z.infer<typeof homeDtoSchema>;
+  try {
+    payload = parseContract(
+      homeDtoSchema,
+      await rpc("app_home_bootstrap_v2"),
+      "Home bootstrap"
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacyHome(rpc);
+  }
   const dashboard = payload.dashboard;
   const best = asRecord(payload.bestAttempt);
   return {
@@ -422,14 +447,20 @@ export async function fetchQuizSession(
   quizId: string,
   progressKey: string
 ): Promise<QuizSession> {
-  const payload = parseContract(
-    quizSessionDtoSchema,
-    await rpc("app_quiz_session_v2", {
-      p_quiz_id: quizId,
-      p_progress_key: progressKey,
-    }),
-    "Quiz session"
-  );
+  let payload: z.infer<typeof quizSessionDtoSchema>;
+  try {
+    payload = parseContract(
+      quizSessionDtoSchema,
+      await rpc("app_quiz_session_v2", {
+        p_quiz_id: quizId,
+        p_progress_key: progressKey,
+      }),
+      "Quiz session"
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacyQuizSession(rpc, quizId, progressKey);
+  }
   const descriptor = payload.descriptor;
   const type = descriptor.question_type;
   return {
@@ -480,15 +511,21 @@ export async function checkQuizAnswer(
   questionId: string,
   answer: string
 ): Promise<AnswerFeedback> {
-  const row = parseContract(
-    feedbackDtoSchema,
-    await rpc("app_check_quiz_answer", {
-      p_quiz_id: quizId,
-      p_question_id: questionId,
-      p_answer: answer,
-    }),
-    "Study feedback"
-  );
+  let row: z.infer<typeof feedbackDtoSchema>;
+  try {
+    row = parseContract(
+      feedbackDtoSchema,
+      await rpc("app_check_quiz_answer", {
+        p_quiz_id: quizId,
+        p_question_id: questionId,
+        p_answer: answer,
+      }),
+      "Study feedback"
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return checkLegacyQuizAnswer(quizId, questionId, answer);
+  }
   return {
     questionId: row.questionId || questionId,
     isCorrect: row.isCorrect,
@@ -534,18 +571,23 @@ export async function submitQuiz(
     timedOut: boolean;
   }
 ) {
-  return normalizeSubmission(
-    await rpc("app_submit_quiz_attempt", {
-      p_quiz_id: quizId,
-      p_submission_id: submissionId,
-      p_answers: answers,
-      p_mode: settings.mode,
-      p_duration_minutes: settings.durationMinutes,
-      p_negative_marking: settings.negativeMarking,
-      p_timed_out: settings.timedOut,
-    }),
-    quizId
-  );
+  try {
+    return normalizeSubmission(
+      await rpc("app_submit_quiz_attempt", {
+        p_quiz_id: quizId,
+        p_submission_id: submissionId,
+        p_answers: answers,
+        p_mode: settings.mode,
+        p_duration_minutes: settings.durationMinutes,
+        p_negative_marking: settings.negativeMarking,
+        p_timed_out: settings.timedOut,
+      }),
+      quizId
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return submitLegacyQuiz(quizId, submissionId, answers, settings);
+  }
 }
 
 export async function fetchAccountPage() {
@@ -556,57 +598,73 @@ export async function fetchSearch(
   query: string,
   signal?: AbortSignal
 ): Promise<LearningSearchResult[]> {
-  const payload = parseContract(
-    searchDtoSchema,
-    await rpc(
-      "app_learning_search",
-      {
-        p_query: query.trim().toLowerCase(),
-        p_limit: query.trim() ? 20 : 12,
-      },
-      signal
-    ),
-    "Learning search"
-  );
-  return payload.results;
+  try {
+    const payload = parseContract(
+      searchDtoSchema,
+      await rpc(
+        "app_learning_search",
+        {
+          p_query: query.trim().toLowerCase(),
+          p_limit: query.trim() ? 20 : 12,
+        },
+        signal
+      ),
+      "Learning search"
+    );
+    return payload.results;
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacySearch(rpc, query, signal);
+  }
 }
 
 export async function fetchHistory(
   filters: HistoryFilters,
   cursor?: { completedAt: string; key: string } | null
 ): Promise<HistoryPage> {
-  const payload = parseContract(
-    historyDtoSchema,
-    await rpc("app_attempt_history", {
-      p_limit: 20,
-      p_cursor_completed_at: cursor?.completedAt || null,
-      p_cursor_key: cursor?.key || null,
-      p_kind: filters.kind || null,
-      p_mode: filters.mode || null,
-      p_level: filters.level || null,
-      p_area: filters.area || null,
-      p_from: filters.from || null,
-      p_to: filters.to || null,
-    }),
-    "Attempt history"
-  );
-  return {
-    summary: payload.summary,
-    items: payload.items,
-    nextCursor: payload.nextCursor,
-  };
+  try {
+    const payload = parseContract(
+      historyDtoSchema,
+      await rpc("app_attempt_history", {
+        p_limit: 20,
+        p_cursor_completed_at: cursor?.completedAt || null,
+        p_cursor_key: cursor?.key || null,
+        p_kind: filters.kind || null,
+        p_mode: filters.mode || null,
+        p_level: filters.level || null,
+        p_area: filters.area || null,
+        p_from: filters.from || null,
+        p_to: filters.to || null,
+      }),
+      "Attempt history"
+    );
+    return {
+      summary: payload.summary,
+      items: payload.items,
+      nextCursor: payload.nextCursor,
+    };
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacyHistory(rpc, filters);
+  }
 }
 
 export async function fetchAttemptReview(
   kind: AttemptKind,
   attemptId: string
 ): Promise<AttemptReview> {
-  const raw = await rpc(
-    kind === "past_paper"
-      ? "app_past_paper_attempt_review_v2"
-      : "app_quiz_attempt_review",
-    { p_attempt_id: attemptId }
-  );
+  let raw: unknown;
+  try {
+    raw = await rpc(
+      kind === "past_paper"
+        ? "app_past_paper_attempt_review_v2"
+        : "app_quiz_attempt_review",
+      { p_attempt_id: attemptId }
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return fetchLegacyReview(rpc, kind, attemptId);
+  }
   let attempt: z.infer<typeof reviewAttemptDtoSchema>;
   let detailAvailable: boolean;
   let items: AttemptReviewItem[];
@@ -719,17 +777,22 @@ export async function submitPastPaper(
     timedOut: boolean;
   }
 ) {
-  return normalizeSubmission(
-    await rpc("app_submit_past_paper_attempt_v2", {
-      p_set_id: setId,
-      p_submission_id: submissionId,
-      p_answers: answers,
-      p_duration_minutes: settings.durationMinutes,
-      p_negative_marking: settings.negativeMarking,
-      p_timed_out: settings.timedOut,
-    }),
-    setId
-  );
+  try {
+    return normalizeSubmission(
+      await rpc("app_submit_past_paper_attempt_v2", {
+        p_set_id: setId,
+        p_submission_id: submissionId,
+        p_answers: answers,
+        p_duration_minutes: settings.durationMinutes,
+        p_negative_marking: settings.negativeMarking,
+        p_timed_out: settings.timedOut,
+      }),
+      setId
+    );
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    return submitLegacyPastPaper(rpc, setId, submissionId, answers, settings);
+  }
 }
 
 export async function savePreferences(
@@ -748,9 +811,22 @@ export async function savePreferences(
     },
     { onConflict: "user_id" }
   );
-  if (error) throw new LearnerApiError(error.message, error.code);
+  if (!error) return;
+  if (
+    /text_size|reduced_motion|default_mode|schema cache/i.test(error.message)
+  ) {
+    return saveLegacyPreferences(userId, preferences);
+  }
+  throw new LearnerApiError(error.message, error.code);
 }
 
 export async function clearDrafts() {
-  await rpc("app_clear_assessment_drafts");
+  try {
+    await rpc("app_clear_assessment_drafts");
+  } catch (error) {
+    if (!isMissingRpcError(error)) throw error;
+    const { data, error: userError } = await getSupabase().auth.getUser();
+    if (userError || !data.user) throw userError || new Error("Sign in again.");
+    await clearLegacyDrafts(data.user.id);
+  }
 }
