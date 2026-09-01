@@ -1,4 +1,4 @@
-const CACHE_NAME = "bitramed-shell-v1";
+const CACHE_NAME = "bitramed-shell-v2";
 const SHELL = [
   "/",
   "/home/",
